@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}IT Service{% endblock %}
+
+{% block breadcrumb %}
+<span class="bc-cur">เลือกประเภทคำขอ</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <div class="p1-grid">
+
+    <!-- LEFT — HERO -->
+    <div>
+      <div class="hero-tag">
+        <div class="hero-tag-dot">
+          <svg width="10" height="10" fill="none" stroke="#5b5ef4" stroke-width="2.5"><use href="#i-zap"/></svg>
+        </div>
+        ระบบแจ้งเรื่องออนไลน์ 24/7
+      </div>
+      <h1 class="hero-title">
+        แจ้งปัญหา <span class="accent">IT</span><br>ได้ทุกที่ ทุกเวลา
+      </h1>
+      <p class="hero-desc">
+        ส่งคำขอรับบริการด้าน IT ได้ง่ายๆ ทีมงานพร้อมดูแลและดำเนินการให้คุณโดยเร็วที่สุด
+      </p>
+    </div>
+
+    <!-- RIGHT — CATEGORY PANEL -->
+    <div>
+      <div class="cat-panel">
+        <div class="panel-hd">เลือกประเภทคำขอ</div>
+
+        {% set color_map = {1:'red', 2:'orange', 3:'green'} %}
+        {% for cat_id, cat in categories.items() %}
+        <a href="{{ url_for('form', cat_id=cat_id) }}" class="cat-item">
+          <div class="ci-icon ci-{{ cat.color }}">
+            <svg width="19" height="19" fill="none" stroke-width="1.8">
+              <use href="#i-{{ cat.icon }}"/>
+            </svg>
+          </div>
+          <div class="ci-body">
+            <div class="ci-title">{{ cat.name }}</div>
+            <div class="ci-desc">{{ cat.desc }}</div>
+          </div>
+          <div class="ci-arrow">
+            <svg width="13" height="13" fill="none" stroke-width="2.2">
+              <use href="#i-arrow-right"/>
+            </svg>
+          </div>
+        </a>
+        {% endfor %}
+
+        <div class="info-box">
+          <div class="info-box-txt">
+            จันทร์ - ศุกร์ 08:00–17:30 น. ติดตามสถานะได้ที่เมนู
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

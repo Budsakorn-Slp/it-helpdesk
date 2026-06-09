@@ -1,0 +1,1096 @@
+{% extends "base.html" %} {% block title %}{{ cat.name }}{% endblock %} {% block
+breadcrumb %}
+<a href="{{ url_for('index') }}">เลือกประเภทคำขอ</a>
+<span class="bc-sep">/</span>
+<span class="bc-cur">{{ cat.name }}</span>
+{% endblock %} {% block content %}
+<div class="form-wrap">
+  <!-- Header -->
+  <div class="back-row">
+    <a href="{{ url_for('index') }}" class="back-btn">
+      <svg width="15" height="15"><use href="#i-arrow-left" /></svg>
+    </a>
+    <span class="pg-title">ฟอร์มเบิก/ยืม/โอนย้าย</span>
+  </div>
+  <div class="form-card">
+    <div class="form-head">
+      <div class="fh-left">
+        <div class="fh-icon">
+          <svg width="18" height="18" fill="none" stroke-width="1.8">
+            <use href="#i-{{ cat.icon }}" />
+          </svg>
+        </div>
+        <div>
+          <div class="fh-tag">คำขอรับบริการ IT · ประเภท {{ cat.typeform }}</div>
+          <div class="fh-title">{{ cat.name }}</div>
+        </div>
+      </div>
+    </div>
+    <form
+      id="request-form"
+      method="POST"
+      action="{{ url_for('submit', cat_id=cat_id) }}"
+      enctype="multipart/form-data"
+    >
+      <div class="form-body">
+        <!-- ══════════════════════════════════════
+             ข้อมูลผู้แจ้ง
+        ══════════════════════════════════════ -->
+        <div class="f-sec">ข้อมูลผู้แจ้ง</div>
+        <div class="f-2col">
+          <div>
+            <label>ชื่อ–นามสกุล</label>
+            <input
+              type="text"
+              value="{{ employee.name if employee else '' }}"
+              class="input-disabled"
+              disabled
+              readonly
+            />
+            <input
+              type="hidden"
+              name="requester_fullname"
+              value="{{ employee.name if employee else '' }}"
+            />
+          </div>
+          <div>
+            <label>แผนก / ฝ่าย <span class="req">*</span></label>
+            <input
+              type="text"
+              name="dept"
+              id="requester-dept"
+              value="{{ employee.emp_dept if employee and employee.emp_dept else '' }}"
+              placeholder="เช่น Information Technology"
+            />
+          </div>
+        </div>
+        <div class="f-2col">
+          <div>
+            <label>เบอร์โทรศัพท์ <span class="req">*</span></label>
+            <input
+              type="tel"
+              name="phone"
+              id="requester-phone"
+              value="{{ employee.mobile if employee and employee.mobile else '' }}"
+              placeholder="เช่น 1122"
+              maxlength="20"
+            />
+            <div class="hint">เบอร์ที่ทีม IT ติดต่อกลับได้</div>
+          </div>
+          <div>
+            <label>อีเมล</label>
+            <input
+              type="email"
+              name="email"
+              placeholder="เช่น example@company.com"
+              maxlength="100"
+            />
+            <div class="hint">สำหรับรับการแจ้งเตือนเพิ่มเติม (ถ้ามี)</div>
+          </div>
+          <input
+            type="hidden"
+            name="emp_id"
+            value="{{ employee.emp_id if employee else '' }}"
+          />
+        </div>
+
+        <!-- ══════════════════════════════════════
+             ประเภทการดำเนินการ (ระดับ 1)
+             ยืม | เบิก | โอนย้าย
+        ══════════════════════════════════════ -->
+        <div class="f-sec">ประเภทการดำเนินการ</div>
+        <div class="f-1col" id="op-type-group">
+          <label>
+            <input
+              type="radio"
+              name="op_type"
+              id="op-borrow"
+              value="borrow"
+              onchange="switchOpType()"
+            />
+            ยืม
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="op_type"
+              id="op-withdraw"
+              value="withdraw"
+              onchange="switchOpType()"
+            />
+            เบิก
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="op_type"
+              id="op-transfer"
+              value="transfer"
+              onchange="switchOpType()"
+            />
+            โอนย้าย
+          </label>
+        </div>
+
+        <!-- ══════════════════════════════════════
+             SECTION: ยืมทรัพย์สิน IT
+        ══════════════════════════════════════ -->
+        <div id="section-borrow" class="dynamic-section" style="display: none">
+          <div class="section-title-hd">ยืมทรัพย์สิน IT</div>
+
+          <div class="transfer-2col">
+            <div>
+              <label>Site <span class="req">*</span></label>
+              <select
+                name="borrow_site"
+                id="borrow-site"
+                data-group="borrow"
+                onchange="onSiteChange(this)"
+              >
+                <option value="">-- เลือก Site --</option>
+              </select>
+            </div>
+            <div>
+              <label>ฝ่าย <span class="req">*</span></label>
+              <select
+                name="borrow_division"
+                id="borrow-division"
+                data-group="borrow"
+                onchange="onDeptChange(this)"
+                disabled
+              >
+                <option value="">-- เลือกฝ่าย --</option>
+              </select>
+            </div>
+            <div>
+              <label>Cost center <span class="req">*</span></label>
+              <select
+                name="borrow_cost_center"
+                id="borrow-cost-center"
+                data-group="borrow"
+                disabled
+              >
+                <option value="">-- เลือก Cost center --</option>
+              </select>
+              <input
+                type="hidden"
+                name="borrow_cost_code"
+                id="borrow-cost-code"
+              />
+            </div>
+
+            <div>
+              <label>อุปกรณ์ที่ต้องการยืม <span class="req">*</span></label>
+              <input
+                type="text"
+                name="borrow_asset_request"
+                id="borrow-asset-request"
+                placeholder="เช่น Notebook, Monitor, Projector..."
+              />
+              <input type="hidden" name="borrow_site_name" id="borrow-site-name">
+              <input type="hidden" name="borrow_division_name" id="borrow-division-name">
+              <input type="hidden" name="borrow_cost_center_name" id="borrow-cost-name">
+            </div>
+            <div>
+              <label>วันที่เริ่มยืม <span class="req">*</span></label>
+              <input
+                type="text"
+                id="borrow_start"
+                name="borrow_start"
+                class="input-date"
+                placeholder="dd/mm/yyyy"
+                required
+              />
+            </div>
+            <div>
+              <label>วันที่คืน <span class="req">*</span></label>
+              <input
+                type="text"
+                id="borrow_end"
+                name="borrow_end"
+                class="input-date"
+                placeholder="dd/mm/yyyy"
+                required
+              />
+            </div>
+          </div>
+          <div style="padding-top: 20px"></div>
+          <div class="f-1col">
+            <label>หมายเหตุ <span class="req">*</span></label>
+            <textarea
+              name="borrow_detail"
+              id="borrow-detail"
+              rows="5"
+              placeholder="เหตุผลในการยืม หรือรายละเอียดเพิ่มเติม..."
+            ></textarea>
+          </div>
+        </div>
+        <!-- /section-borrow -->
+
+        <!-- ══════════════════════════════════════
+             SECTION: เบิกทรัพย์สิน IT
+        ══════════════════════════════════════ -->
+        <div
+          id="section-withdraw"
+          class="dynamic-section"
+          style="display: none"
+        >
+          <div class="section-title-hd">เบิกทรัพย์สิน IT</div>
+          <div class="transfer-2col">
+            <div>
+              <label>Site <span class="req">*</span></label>
+              <select
+                name="withdraw_site"
+                id="withdraw-site"
+                data-group="withdraw"
+                onchange="onSiteChange(this)"
+              >
+                <option value="">-- เลือก Site --</option>
+              </select>
+            </div>
+            <div>
+              <label>ฝ่าย <span class="req">*</span></label>
+              <select
+                name="withdraw_division"
+                id="withdraw-division"
+                data-group="withdraw"
+                onchange="onDeptChange(this)"
+                disabled
+              >
+              <option value="">-- เลือกฝ่าย --</option>
+              </select>
+              <input type="hidden" name="withdraw_site_name" id="withdraw-site-name">
+              <input type="hidden" name="withdraw_division_name" id="withdraw-division-name">
+              <input type="hidden" name="withdraw_cost_center_name" id="withdraw-cost-name">
+            </div>
+
+            <div>
+              <label>Cost center <span class="req">*</span></label>
+              <select
+                name="withdraw_cost_center"
+                id="withdraw-cost-center"
+                data-group="withdraw"
+                disabled
+              >
+                <option value="">-- เลือก Cost center --</option>
+              </select>
+              <input
+                type="hidden"
+                name="withdraw_cost_code"
+                id="withdraw-cost-code"
+              />
+            </div>
+            <div>
+              <label>อุปกรณ์ที่ต้องการเบิก <span class="req">*</span></label>
+              <input
+                type="text"
+                name="withdraw_asset_request"
+                id="withdraw-asset-request"
+                placeholder="เช่น Notebook, Monitor, Projector..."
+              />
+            </div>
+          </div>
+          <div class="f-1col">
+            <label>หมายเหตุ <span class="req">*</span></label>
+            <textarea
+              name="withdraw_detail"
+              id="withdraw-detail"
+              rows="5"
+              placeholder="เหตุผลในการเบิก หรือรายละเอียดอื่นๆ ..."
+            ></textarea>
+          </div>
+        </div>
+        <!-- /section-withdraw -->
+
+        <!-- ══════════════════════════════════════
+             SECTION: โอนย้ายทรัพย์สิน IT
+        ══════════════════════════════════════ -->
+        <div
+          id="section-transfer"
+          class="dynamic-section"
+          style="display: none"
+        >
+          <div class="section-title-hd">โอนย้ายทรัพย์สิน IT</div>
+          <!-- มีความประสงค์จะขอดำเนินการเกี่ยวกับ -->
+          <div class="f-sec">มีความประสงค์จะขอดำเนินการเกี่ยวกับ</div>
+          <div class="f-1col">
+            <label>
+              <input
+                type="radio"
+                name="transfer_asset_type"
+                id="transfer-asset-fixed"
+                value="fixed_asset"
+                checked
+              />
+              สินทรัพย์ถาวร
+            </label>
+          </div>
+          <!-- ── ประเภทย่อย (ระดับ 2) ── -->
+          <div class="f-sec">ประเภทเอกสาร</div>
+          <div class="f-1col" id="transfer-sub-group">
+            <label>
+              <input type="radio" name="transfer_sub_type" value="TRANSFER" onchange="switchTransferSubType()" />
+              โอนย้ายระหว่างหน่วยงาน
+            </label>
+            <label>
+              <input type="radio" name="transfer_sub_type" value="DISPOSE" onchange="switchTransferSubType()" />
+              ตัดบัญชี สูญหาย
+            </label>
+            <label>
+              <input type="radio" name="transfer_sub_type" value="SALE" onchange="switchTransferSubType()" />
+              เพื่อขาย
+            </label>
+            <label>
+              <input type="radio" name="transfer_sub_type" value="REPAIR" onchange="switchTransferSubType()" />
+              ส่งซ่อม
+            </label>
+            <label>
+              <input type="radio" name="transfer_sub_type" value="BORROW" onchange="switchTransferSubType()" />
+              ยืม
+            </label>
+          </div>
+
+          <!-- บริษัท-->
+          <div class="f-sec">บริษัท</div>
+          <div class="f-1col">
+          <label><input type="radio" name="company" value="บริษัทเอส.บี.อุตสาหรกรรมเครื่องเรือน จำกัด"> บริษัทเอส.บี.อุตสาหรกรรมเครื่องเรือน จำกัด</label>
+          <label><input type="radio" name="company" value="บริษัท สักทองไทย จำกัด"> บริษัท สักทองไทย จำกัด</label>
+          <label><input type="radio" name="company" value="บริษัท เอส.บี.เฟอร์นิเจอร์เฮ้าส์ จำกัด"> บริษัท เอส.บี.เฟอร์นิเจอร์เฮ้าส์ จำกัด</label>
+          <label><input type="radio" name="company" value="บริษัท โปรเทรนนิ่ง จำกัด"> บริษัท โปรเทรนนิ่ง จำกัด</label>
+          </div>
+
+          <!-- ──────────────────────────────────
+               ฟอร์มสินทรัพย์ (ใช้ร่วมกันทุกประเภท)
+          ────────────────────────────────── -->
+          <div id="section-transfer-common">
+            <div class="transfer-2col">
+              <!-- ── หน่วยงานส่งโอน (ต้นทาง) ── -->
+              <div class="transfer-box">
+                <div class="tb-title">หน่วยงานส่งโอน (ต้นทาง)</div>
+                <label>หน่วยงาน <span class="req">*</span></label>
+                <input
+                  type="text"
+                  name="t1_from_dept"
+                  id="t1-from-dept"
+                  placeholder="ชื่อหน่วยงาน"
+                />
+                <label>Site <span class="req">*</span></label>
+                <select
+                  name="t1_from_site"
+                  id="t1-from-site"
+                  class="cascade-site"
+                  data-group="from"
+                  onchange="onSiteChange(this)"
+                >
+                  <option value="">-- เลือก Site --</option>
+                </select>
+                <label>ฝ่าย</label>
+                <select
+                  name="t1_from_division"
+                  id="t1-from-division"
+                  class="cascade-dept"
+                  data-group="from"
+                  onchange="onDeptChange(this)"
+                  disabled
+                >
+                  <option value="">-- เลือกฝ่าย --</option>
+                </select>
+                <label>Cost center <span class="req">*</span></label>
+                <select
+                  name="t1_from_cost_center"
+                  id="t1-from-cost-center"
+                  class="cascade-cost"
+                  data-group="from"
+                  onchange="onCostChange(this)"
+                  disabled
+                >
+                  <option value="">-- เลือก Cost center --</option>
+                </select>
+                <input
+                  type="hidden"
+                  name="t1_from_cost_code"
+                  id="t1-from-cost-code"
+                />
+                <label>Location <span class="req">*</span></label>
+                <select name="t1_from_location" id="t1-from-location">
+                  <option value="">-----------</option>
+                </select>
+              </div>
+
+              <!-- ── หน่วยงานรับโอน (ปลายทาง) ── -->
+              <div class="transfer-box">
+                <div class="tb-title">หน่วยงานรับโอน (ปลายทาง)</div>
+                <label>หน่วยงาน <span class="req">*</span></label>
+                <input
+                  type="text"
+                  name="t1_to_dept"
+                  id="t1-to-dept"
+                  placeholder="ชื่อหน่วยงาน"
+                />
+                <label>Site <span class="req">*</span></label>
+                <select
+                  name="t1_to_site"
+                  id="t1-to-site"
+                  class="cascade-site"
+                  data-group="to"
+                  onchange="onSiteChange(this)"
+                >
+                  <option value="">-- เลือก Site --</option>
+                </select>
+                <label>ฝ่าย</label>
+                <select
+                  name="t1_to_division"
+                  id="t1-to-division"
+                  class="cascade-dept"
+                  data-group="to"
+                  onchange="onDeptChange(this)"
+                  disabled
+                >
+                  <option value="">-- เลือกฝ่าย --</option>
+                </select>
+
+                <label>Cost center <span class="req">*</span></label>
+                <select
+                  name="t1_to_cost_center"
+                  id="t1-to-cost-center"
+                  class="cascade-cost"
+                  data-group="to"
+                  onchange="onCostChange(this)"
+                  disabled
+                >
+                  <option value="">-- เลือก Cost center --</option>
+                </select>
+                <input
+                  type="hidden"
+                  name="t1_to_cost_code"
+                  id="t1-to-cost-code"
+                />
+
+                <label>Location <span class="req">*</span></label>
+                <select name="t1_to_location" id="t1-to-location">
+                  <option value="">-----------</option>
+                </select>
+              </div>
+            </div>
+
+          <!-- เพื่อขาย -->
+          <div id="section-transfer-sale" style="display:none; padding-top:20px;">
+            <label>ชื่อ–นามสกุล ผู้ซื้อ <span class="req">*</span></label>
+              <input type="text" name="t1_buyer_name" id="t1-buyer-name" placeholder="ชื่อ–นามสกุล" />
+            <label>ที่อยู่ <span class="req">*</span></label>
+              <input type="text" name="t1_buyer_address" id="t1-buyer-address" placeholder="ที่อยู่" />
+            <label>ราคาขาย(ไม่รวม Vat) <span class="req">*</span></label>
+              <input type="number" name="t1_buyer_price" id="t1-buyer-price" placeholder="ราคาขาย" />
+          </div>
+            <div style="padding-top: 20px"></div>
+            <div class="f-sec">ข้อมูลสินทรัพย์</div>
+            <div class="asset-table-wrap">
+              <table class="asset-table">
+                <thead>
+                  <tr>
+                    <th style="width: 48px">ลำดับ</th>
+                    <th style="width: 140px">รหัสทรัพย์</th>
+                    <th>ชื่อสินทรัพย์</th>
+                    <th>รายละเอียดเพิ่มเติม</th>
+                    <th style="width: 52px"></th>
+                  </tr>
+                </thead>
+                <tbody id="asset-table-t1">
+                  <tr>
+                    <td class="at-num">1</td>
+                    <td>
+                      <input
+                        type="text"
+                        class="at-input"
+                        name="t1_asset_code[]"
+                        placeholder="H-XXXXX"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        class="at-input"
+                        name="t1_asset_name[]"
+                        placeholder="ชื่อสินทรัพย์"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        class="at-input"
+                        name="t1_asset_remark[]"
+                        placeholder="หมายเหตุ"
+                      />
+                    </td>
+                    <td class="at-action">
+                      <button
+                        type="button"
+                        class="btn-del-row"
+                        onclick="removeRow(this, 'asset-table-t1')"
+                      >
+                        ลบ
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button
+              type="button"
+              class="btn-add-row"
+              onclick="addRow('asset-table-t1', 't1')"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              เพิ่มสินทรัพย์
+            </button>
+            <div style="padding-top: 20px"></div>
+            <div class="f-sec">หมายเหตุ</div>
+            <div class="f-1col">
+              <textarea
+                name="t1_detail"
+                id="t1-detail"
+                rows="4"
+                placeholder="รายละเอียดเพิ่มเติม..."
+              ></textarea>
+            </div>
+          </div>
+          <!-- /section-transfer-t1 -->
+        </div>
+        <!-- /section-transfer -->
+      </div>
+      <!-- /form-body -->
+
+      <!-- footer -->
+      <div class="form-foot">
+        <span class="req-note">* จำเป็นต้องกรอก</span>
+        <div class="btn-group">
+          <a href="{{ url_for('index') }}" class="btn-cancel">ย้อนกลับ</a>
+          <button type="submit" class="btn-submit" onclick="logFormData(event)">
+            ส่งคำขอ
+            <svg width="13" height="13"><use href="#i-send" /></svg>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  /* ─────────────────────────────────────────
+     Level-1: สลับ ยืม / เบิก / โอนย้าย
+  ───────────────────────────────────────── */
+  function switchOpType() {
+    const val = document.querySelector('input[name="op_type"]:checked')?.value;
+    if (!val) return;
+    document.getElementById("section-borrow").style.display =
+      val === "borrow" ? "block" : "none";
+    document.getElementById("section-withdraw").style.display =
+      val === "withdraw" ? "block" : "none";
+    document.getElementById("section-transfer").style.display =
+      val === "transfer" ? "block" : "none";
+    console.log("[switchOpType] op_type =", val);
+  }
+
+  /* ─────────────────────────────────────────
+     ตาราง: เพิ่มแถวสินทรัพย์
+  ───────────────────────────────────────── */
+  function addRow(tableId, prefix) {
+    const tbody = document.getElementById(tableId);
+    const rowNum = tbody.rows.length + 1;
+    const row = tbody.insertRow();
+    row.innerHTML = `
+      <td class="at-num">${rowNum}</td>
+      <td><input type="text" class="at-input" name="${prefix}_asset_code[]" placeholder="A-XXXXX" /></td>
+      <td><input type="text" class="at-input" name="${prefix}_asset_name[]" placeholder="ชื่อสินทรัพย์" /></td>
+      <td><input type="text" class="at-input" name="${prefix}_asset_remark[]" placeholder="หมายเหตุ" /></td>
+      <td class="at-action"><button type="button" class="btn-del-row" onclick="removeRow(this,'${tableId}')">ลบ</button></td>
+    `;
+    console.log("[addRow] tableId =", tableId, "| rowNum =", rowNum);
+  }
+
+  /* ─────────────────────────────────────────
+     ตาราง: ลบแถว + renumber
+  ───────────────────────────────────────── */
+  function removeRow(btn, tableId) {
+    btn.closest("tr").remove();
+    const rows = document.getElementById(tableId).rows;
+    for (let i = 0; i < rows.length; i++) {
+      rows[i].cells[0].textContent = i + 1;
+    }
+    console.log("[removeRow] tableId =", tableId, "| remaining =", rows.length);
+  }
+
+  /* ─────────────────────────────────────────
+     Helper: เก็บแถวสินทรัพย์เป็น array
+  ───────────────────────────────────────── */
+  function collectAssets(tableId) {
+    const rows = document.getElementById(tableId)?.rows ?? [];
+    const result = [];
+    for (const row of rows) {
+      result.push({
+        code: row.cells[1]?.querySelector("input")?.value ?? "",
+        name: row.cells[2]?.querySelector("input")?.value ?? "",
+        remark: row.cells[3]?.querySelector("input")?.value ?? "",
+      });
+    }
+    return result;
+  }
+
+  /* ─────────────────────────────────────────
+     Log + collect ก่อน submit
+     (ไม่ preventDefault → submit ปกติ)
+  ───────────────────────────────────────── */
+  function logFormData(e) {
+
+    const siteEl = document.getElementById("borrow-site");
+    const divisionEl = document.getElementById("borrow-division");
+    const costEl = document.getElementById("borrow-cost-center");
+
+    const siteText = siteEl?.selectedOptions[0]?.text || "";
+    const divisionText = divisionEl?.selectedOptions[0]?.text || "";
+    const costText = costEl?.selectedOptions[0]?.text || "";
+
+    document.getElementById("borrow-site-name").value = siteText;
+    document.getElementById("borrow-division-name").value = divisionText;
+    document.getElementById("borrow-cost-name").value = costText;
+
+    const opType =
+      document.querySelector('input[name="op_type"]:checked')?.value ?? "";
+
+      if (!opType) {
+        alert("กรุณาเลือกประเภทการดำเนินการ");
+        e.preventDefault();
+        return false;
+      }
+
+    const subType =
+      document.querySelector('input[name="transfer_sub_type"]:checked')?.value;
+
+    // =========================
+    // VALIDATE TRANSFER
+    // =========================
+    if (opType === "transfer") {
+
+      const fromSite = document.getElementById("t1-from-site")?.value;
+      const fromDiv  = document.getElementById("t1-from-division")?.value;
+      const fromCC   = document.getElementById("t1-from-cost-code")?.value;
+      const fromLoc  = document.getElementById("t1-from-location")?.value;
+
+      const toSite = document.getElementById("t1-to-site")?.value;
+      const toDiv  = document.getElementById("t1-to-division")?.value;
+      const toCC   = document.getElementById("t1-to-cost-code")?.value;
+      const toLoc  = document.getElementById("t1-to-location")?.value;
+
+      // TRANSFER → ต้องมี FROM + TO + LOCATION
+      if (subType === "TRANSFER") {
+        if (
+          !fromSite || !fromDiv || !fromCC || !fromLoc ||
+          !toSite   || !toDiv   || !toCC   || !toLoc
+        ) {
+          alert("กรุณากรอกต้นทางและปลายทางให้ครบ");
+          e.preventDefault();
+          return false;
+        }
+      }
+
+      // SALE → ต้องมี FROM + LOCATION + BUYER
+      if (subType === "SALE") {
+
+        const buyer = document.getElementById("t1-buyer-name")?.value;
+        const addr  = document.getElementById("t1-buyer-address")?.value;
+        const price = document.getElementById("t1-buyer-price")?.value;
+
+        if (!fromSite || !fromDiv || !fromCC || !fromLoc || !buyer || !addr || !price) {
+          alert("กรุณากรอกต้นทางและข้อมูลผู้ซื้อให้ครบ");
+          e.preventDefault();
+          return false;
+        }
+      }
+    }
+
+    const payload = {
+      op_type: opType,
+      requester_fullname:
+        document.querySelector('[name="requester_fullname"]')?.value ?? "",
+      dept: document.getElementById("requester-dept")?.value ?? "",
+      phone: document.getElementById("requester-phone")?.value ?? "",
+    };
+
+    if (opType === "borrow") {
+      Object.assign(payload, {
+        borrow_cost_center:
+          document.getElementById("borrow-cost-center")?.value ?? "",
+        borrow_division:
+          document.getElementById("borrow-division")?.value ?? "",
+        borrow_asset_request:
+          document.getElementById("borrow-asset-request")?.value ?? "",
+        borrow_detail: document.getElementById("borrow-detail")?.value ?? "",
+        borrow_site_name: siteText,
+        borrow_division_name: divisionText,
+        borrow_cost_center_name: costText,
+      });
+    } else if (opType === "withdraw") {
+        const siteEl = document.getElementById("withdraw-site");
+        const divisionEl = document.getElementById("withdraw-division");
+        const costEl = document.getElementById("withdraw-cost-center");
+
+        const siteText = siteEl.options[siteEl.selectedIndex]?.text || "";
+        const divisionText = divisionEl.options[divisionEl.selectedIndex]?.text || "";
+        const costText = costEl.options[costEl.selectedIndex]?.text || "";
+
+        // ใส่ค่าเข้า hidden input
+        document.getElementById("withdraw-site-name").value = siteText;
+        document.getElementById("withdraw-division-name").value = divisionText;
+        document.getElementById("withdraw-cost-name").value = costText;
+
+      Object.assign(payload, {
+        withdraw_cost_center:
+          document.getElementById("withdraw-cost-center")?.value ?? "",
+        withdraw_division:
+          document.getElementById("withdraw-division")?.value ?? "",
+        withdraw_asset_request:
+          document.getElementById("withdraw-asset-request")?.value ?? "",
+        withdraw_detail:
+          document.getElementById("withdraw-detail")?.value ?? "",
+          
+      });
+    } else if (opType === "transfer") {
+      Object.assign(payload, {
+        transfer_asset_type:
+          document.querySelector('input[name="transfer_asset_type"]:checked')
+            ?.value ?? "",
+        transfer_sub_type:
+          document.querySelector('input[name="transfer_sub_type"]:checked')
+            ?.value ?? "",
+        t1_from_dept: document.getElementById("t1-from-dept")?.value ?? "",
+        t1_from_site: document.getElementById("t1-from-site")?.value ?? "",
+        t1_from_division:
+          document.getElementById("t1-from-division")?.value ?? "",
+        t1_from_cost_center:
+          document.getElementById("t1-from-cost-center")?.value ?? "",
+        t1_from_location:
+          document.getElementById("t1-from-location")?.value ?? "",
+        t1_to_dept: document.getElementById("t1-to-dept")?.value ?? "",
+        t1_to_site: document.getElementById("t1-to-site")?.value ?? "",
+        t1_to_division: document.getElementById("t1-to-division")?.value ?? "",
+        t1_to_cost_center:
+          document.getElementById("t1-to-cost-center")?.value ?? "",
+        t1_to_location: document.getElementById("t1-to-location")?.value ?? "",
+        t1_detail: document.getElementById("t1-detail")?.value ?? "",
+        t1_assets: collectAssets("asset-table-t1"),
+      });
+    }
+
+    console.log("======= [Form Data Preview] =======");
+    console.log(JSON.stringify(payload, null, 2));
+    console.log("===================================");
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const startPicker = flatpickr("#borrow_start", {
+      dateFormat: "d/m/Y",
+      defaultDate: "today",
+      onChange: function (selectedDates) {
+        endPicker.set("minDate", selectedDates[0]);
+      },
+    });
+
+    const endPicker = flatpickr("#borrow_end", {
+      dateFormat: "d/m/Y",
+      defaultDate: "today",
+    });
+  });
+
+  /* ══════════════════════════════════════════════════════
+   CASCADE: Site → ฝ่าย → Cost Center
+   map group name → element IDs ของแต่ละ section
+══════════════════════════════════════════════════════ */
+  const CASCADE_MAP = {
+    from: {
+      site: "t1-from-site",
+      dept: "t1-from-division",
+      cost: "t1-from-cost-center",
+      code: "t1-from-cost-code",
+    },
+    to: {
+      site: "t1-to-site",
+      dept: "t1-to-division",
+      cost: "t1-to-cost-center",
+      code: "t1-to-cost-code",
+    },
+    borrow: {
+      site: "borrow-site",
+      dept: "borrow-division",
+      cost: "borrow-cost-center",
+      code: "borrow-cost-code",
+    },
+    withdraw: {
+      site: "withdraw-site",
+      dept: "withdraw-division",
+      cost: "withdraw-cost-center",
+      code: "withdraw-cost-code",
+    },
+  };
+
+  /* ── helper: fill options ── */
+  function fillOpts(selEl, items, placeholder) {
+    selEl.innerHTML = `<option value="">${placeholder}</option>`;
+    items.forEach((item) => {
+      const o = document.createElement("option");
+      o.value = item.id;
+      o.textContent = item.name || `${item.code} – ${item.name2 || ""}`;
+      if (item.code) o.dataset.code = item.code;
+      selEl.appendChild(o);
+    });
+    selEl.disabled = items.length === 0;
+  }
+
+  function resetSel(selEl, placeholder = "-- เลือก --") {
+    selEl.innerHTML = `<option value="">${placeholder}</option>`;
+    selEl.disabled = true;
+  }
+
+  /* ── Level 1: เลือก Site → โหลด ฝ่าย ── */
+  async function onSiteChange(el) {
+    const group = el.dataset.group;
+    const ids = CASCADE_MAP[group];
+    const deptSel = document.getElementById(ids.dept);
+    const costSel = document.getElementById(ids.cost);
+    const codeIn = document.getElementById(ids.code);
+
+    resetSel(deptSel, "-- เลือกฝ่าย --");
+    resetSel(costSel, "-- เลือก Cost center --");
+    if (codeIn) codeIn.value = "";
+
+    const compId = el.value;
+    if (!compId) return;
+
+    const res = await fetch(`/api/departments/${compId}`);
+    const data = await res.json();
+    fillOpts(deptSel, data, "-- เลือกฝ่าย --");
+  }
+
+  /* ── Level 2: เลือก ฝ่าย → โหลด Cost Center ── */
+  async function onDeptChange(el) {
+    const group = el.dataset.group;
+    const ids = CASCADE_MAP[group];
+    const costSel = document.getElementById(ids.cost);
+    const codeIn = document.getElementById(ids.code);
+
+    resetSel(costSel, "-- เลือก Cost center --");
+    if (codeIn) codeIn.value = "";
+
+    const deptId = el.value;
+    if (!deptId) return;
+
+    const res = await fetch(`/api/costcenters/${deptId}`);
+    const data = await res.json();
+
+    // เติมพร้อม label "CODE – ชื่อ"
+    costSel.innerHTML = `<option value="">-- เลือก Cost center --</option>`;
+    data.forEach((item) => {
+      const o = document.createElement("option");
+      o.value = item.id;
+      o.textContent = `${item.code} – ${item.name}`;
+      o.dataset.code = item.code;
+      costSel.appendChild(o);
+    });
+    costSel.disabled = data.length === 0;
+
+    // เก็บ COST_CODE เมื่อเลือก
+    costSel.onchange = () => {
+      const sel = costSel.selectedOptions[0];
+      if (codeIn) codeIn.value = sel ? sel.dataset.code || "" : "";
+    };
+  }
+
+  /* ── โหลด Site ทุก select พร้อมกันตอน page load ── */
+  document.addEventListener("DOMContentLoaded", async () => {
+    const res = await fetch("/api/companies");
+    const comps = await res.json();
+
+    // เติม Site dropdown ทุก group
+    Object.values(CASCADE_MAP).forEach((ids) => {
+      const siteSel = document.getElementById(ids.site);
+      if (siteSel) fillOpts(siteSel, comps, "-- เลือก Site --");
+    });
+
+    await loadLocations();
+  });
+
+  // Location
+  async function loadLocations() {
+    const res = await fetch("/api/locations");
+    const data = await res.json();
+
+    const selects = [
+      document.getElementById("t1-from-location"),
+      document.getElementById("t1-to-location"),
+    ];
+
+    selects.forEach((sel) => {
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- เลือก Location --</option>';
+      data.forEach((loc) => {
+        const opt = document.createElement("option");
+        opt.value = loc.code;
+        opt.textContent = `${loc.code} - ${loc.name}`;
+        sel.appendChild(opt);
+      });
+    });
+  }
+
+  function switchTransferSubType() {
+  const val = document.querySelector('input[name="transfer_sub_type"]:checked')?.value;
+
+  document.getElementById("section-transfer-sale").style.display =
+    val === "SALE" ? "block" : "none";
+  console.log("[switchTransferSubType] =", val);
+}
+
+  /* ─── init ─── */
+  switchOpType();
+</script>
+
+<style>
+  /* ── Asset Table ─────────────────────────── */
+  .asset-table-wrap {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    margin-top: 4px;
+  }
+  .asset-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .asset-table thead tr {
+    background: linear-gradient(135deg, #0ea5b7 0%, #0891a0 100%);
+  }
+  .asset-table th {
+    color: #fff;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 12px;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+  }
+  .asset-table th:first-child {
+    text-align: center;
+  }
+  .asset-table tbody tr {
+    border-bottom: 1px solid #f0f4f8;
+    transition: background 0.15s;
+  }
+  .asset-table tbody tr:last-child {
+    border-bottom: none;
+  }
+  .asset-table tbody tr:hover {
+    background: #f0fafb;
+  }
+  .asset-table td {
+    padding: 7px 10px;
+    vertical-align: middle;
+  }
+  .at-num {
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+    width: 48px;
+  }
+  .at-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1.5px solid #d1dae6;
+    border-radius: 6px;
+    padding: 6px 9px;
+    font-size: 13px;
+    color: #334155;
+    background: #fafcfe;
+    outline: none;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
+  }
+  .at-input:focus {
+    border-color: #0ea5b7;
+    box-shadow: 0 0 0 3px rgba(14, 165, 183, 0.12);
+    background: #fff;
+  }
+  .at-action {
+    text-align: center;
+  }
+  .btn-del-row {
+    background: #fff0f0;
+    color: #e53e3e;
+    border: 1.5px solid #fca5a5;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+  }
+  .btn-del-row:hover {
+    background: #fee2e2;
+    border-color: #e53e3e;
+  }
+  .btn-add-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 10px;
+    padding: 7px 16px;
+    background: #f0fafb;
+    color: #0891a0;
+    border: 1.5px dashed #0ea5b7;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-add-row:hover {
+    background: #e0f5f7;
+    border-style: solid;
+  }
+
+  /* ── Date input ────────────────────────── */
+  input[type="date"] {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1.5px solid #d1dae6;
+    border-radius: 8px;
+    padding: 8px 11px;
+    font-size: 14px;
+    color: #334155;
+    background: #fafcfe;
+    outline: none;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
+    cursor: pointer;
+  }
+  input[type="date"]:focus {
+    border-color: #0ea5b7;
+    box-shadow: 0 0 0 3px rgba(14, 165, 183, 0.12);
+    background: #fff;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    color: #0ea5b7;
+    opacity: 0.7;
+    cursor: pointer;
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,441 @@
+{% extends "base.html" %}
+{% block title %}ติดตามสถานะ{% endblock %}
+{% block breadcrumb %}<span class="bc-cur">ติดตามสถานะ</span>{% endblock %}
+
+{% block content %}
+<style>
+/* ─── Track-page overrides ──────────────────────────────── */
+.track-search-card { margin-bottom: 16px; }
+
+/* ── Cards (แทน table) ─────────────────────────────────── */
+.tk-list { display: flex; flex-direction: column; gap: 12px; }
+
+.tk-card {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+
+.tk-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.tk-id-col { flex: 0 0 auto; }
+
+.tk-id {
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--purple, #5b5ef4);
+  letter-spacing: .5px;
+}
+
+.tk-type {
+  font-size: .78rem;
+  color: var(--text-muted, #6b7280);
+  margin-top: 2px;
+}
+
+.tk-meta { flex: 1 1 auto; min-width: 0; }
+
+.tk-name {
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--text, #111);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tk-date {
+  font-size: .75rem;
+  color: var(--text-muted, #6b7280);
+  margin-top: 2px;
+}
+
+.tk-status-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* ── Approver status badge ─── */
+.apv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .7rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.apv-waiting  { background: #fef3c7; color: #92400e; }
+.apv-approve  { background: #d1fae5; color: #065f46; }
+.apv-reject   { background: #fee2e2; color: #991b1b; }
+.apv-done     { background: #dbeafe; color: #1e40af; }
+.apv-none     { background: #f3f4f6; color: #6b7280; }
+
+/* ── Expand toggle ─── */
+.tk-card-actions {
+  display: flex;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.tk-btn-detail, .tk-btn-full {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 6px;
+  font-size: .78rem;
+  font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+  transition: background .15s, color .15s;
+  text-decoration: none;
+}
+.tk-btn-detail:hover { background: #f5f5ff; color: var(--purple, #5b5ef4); }
+.tk-btn-full   { border-left: 1px solid var(--border, #e5e7eb); }
+.tk-btn-full:hover  { background: #f5f5ff; color: var(--purple, #5b5ef4); }
+
+.tk-btn-detail svg, .tk-btn-full svg { flex-shrink: 0; }
+
+/* ── PDF buttons in action bar ─── */
+.tk-btn-pdf {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 6px;
+  font-size: .78rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background .15s, color .15s;
+  border-left: 1px solid var(--border, #e5e7eb);
+}
+.tk-btn-pdf--preview {
+  color: #3a56a0;
+  background: none;
+}
+.tk-btn-pdf--preview:hover { background: #eef2fb; color: #1a3c6e; }
+
+.tk-btn-pdf--download {
+  color: #fff;
+  background: #1a3c6e;
+}
+.tk-btn-pdf--download:hover { background: #14305a; color: #fff; }
+
+/* ── Expandable detail panel ─── */
+.tk-detail-panel {
+  display: none;
+  border-top: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-subtle, #f9fafb);
+  padding: 14px;
+  animation: fadeDown .18s ease;
+}
+.tk-detail-panel.open { display: block; }
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* field rows inside panel */
+.dp-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  font-size: .82rem;
+}
+.dp-row:last-child { border-bottom: none; }
+.dp-label {
+  flex: 0 0 90px;
+  color: var(--text-muted, #6b7280);
+  font-size: .77rem;
+}
+.dp-val {
+  flex: 1;
+  color: var(--text, #111);
+  word-break: break-word;
+}
+.dp-remark {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  font-size: .82rem;
+  color: var(--text, #111);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.dp-remark-label {
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--purple, #5b5ef4);
+  margin-bottom: 6px;
+}
+
+/* chevron animation */
+.chev { transition: transform .2s; display: inline-block; }
+.chev.open { transform: rotate(180deg); }
+
+/* result count */
+.track-count {
+  font-size: .8rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+/* ── Responsive tweaks ─── */
+@media (max-width: 400px) {
+  .dp-label { flex: 0 0 76px; }
+}
+</style>
+
+<div class="form-wrap">
+
+  <!-- ── Back + Title ── -->
+  <div class="back-row">
+    <a href="{{ url_for('index') }}" class="back-btn">
+      <svg width="15" height="15"><use href="#i-arrow-left"/></svg>
+    </a>
+    <span class="pg-title">ติดตามสถานะคำขอ</span>
+  </div>
+
+  <!-- ── Search Card ── -->
+  <div class="form-card track-search-card">
+    <div class="form-head">
+      <div class="fh-left">
+        <div class="fh-icon">
+          <svg width="18" height="18" fill="none" stroke-width="1.8"><use href="#i-search"/></svg>
+        </div>
+        <div>
+          <div class="fh-tag">Track &amp; Status</div>
+          <div class="fh-title">ค้นหาคำขอของคุณ</div>
+        </div>
+      </div>
+    </div>
+    <div class="form-body" style="padding-bottom:0;">
+      <form method="GET" action="{{ url_for('track') }}">
+        <div class="f-2col">
+          <div>
+            <label>หมายเลขติดตาม</label>
+            <input type="text" name="ticket" value="{{ ticket_no }}" placeholder="เช่น 000001">
+            <div class="hint">ค้นหาตาม Request ID</div>
+          </div>
+          <div>
+            <label>รหัสพนักงาน</label>
+            <input type="text" name="emp_id" value="{{ emp_id }}" placeholder="กรอกรหัสพนักงาน" >
+            <div class="hint">ดูคำขอทั้งหมดของตัวเอง</div>
+          </div>
+        </div>
+        <div class="form-foot" style="margin-top:0;border-top:none;padding-top:0;background:transparent;">
+          <span></span>
+          <button type="submit" class="btn-submit">
+            <svg width="13" height="13" fill="none" stroke="white" stroke-width="2"><use href="#i-search"/></svg>
+            ค้นหา
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Results ── -->
+  {% if error %}
+  <div class="track-alert track-alert--error">
+    <svg width="15" height="15" fill="none" stroke-width="2"><use href="#i-alert"/></svg>
+    เกิดข้อผิดพลาด: {{ error }}
+  </div>
+
+  {% elif results is defined %}
+    {% if results %}
+
+    <div class="track-count">พบ {{ results|length }} รายการ</div>
+    <div class="tk-list">
+      {% for r in results %}
+
+      {# ───────────────────────────── #}
+      {# APPROVER STATUS #}
+      {# ───────────────────────────── #}
+
+      {% set apv_cls = 'apv-none' %}
+
+      {% if r.display_class == '4' %}
+        {% set apv_cls = 'apv-waiting' %}
+      {% elif r.display_class == '5' %}
+        {% set apv_cls = 'apv-approve' %}
+      {% elif r.display_class == '3' %}
+        {% set apv_cls = 'apv-reject' %}
+      {% elif r.display_class == 'done' %}
+        {% set apv_cls = 'apv-done' %}
+      {% endif %}
+
+      {% set apv_lbl = r.display_status %}
+
+      {# ───────────────────────────── #}
+      {# ประเภทคำขอ #}
+      {# ───────────────────────────── #}
+
+      {% if r.request_typeform == '1' %}
+        {% set type_lbl = 'แจ้งปัญหาคอมพิวเตอร์' %}
+      {% elif r.request_typeform == '2' %}
+        {% set type_lbl = 'แจ้งปัญหาอินเทอร์เน็ต' %}
+      {% elif r.request_typeform == '3' %}
+        {% set type_lbl = 'ขอสิทธิ์การเข้าถึง' %}
+      {% elif r.request_typeform == '4' %}
+        {% set type_lbl = 'เบิก / ยืม / โอนย้าย' %}
+      {% elif r.request_typeform == '5' %}
+        {% set type_lbl = 'ขอแก้ไข / ขอโปรแกรมใหม่' %}
+      {% else %}
+        {% set type_lbl = r.request_typeform %}
+      {% endif %}
+
+      <div class="tk-card" id="card-{{ r.request_id }}">
+
+        <!-- top row -->
+        <div class="tk-card-top">
+          <div class="tk-id-col">
+            <div class="tk-id">#{{ r.request_id }}</div>
+            <div class="tk-type">{{ type_lbl }}</div>
+          </div>
+
+          <div class="tk-meta">
+            <div class="tk-name">
+              {{ ((r.requester_fname or '') ~ ' ' ~ (r.requester_lname or '')) | trim or '—' }}
+            </div>
+            <div class="tk-date">{{ r.request_date or '—' }}</div>
+          </div>
+
+          <div class="tk-status-col">
+            <span class="apv-badge {{ apv_cls }}">
+              {% if apv_cls == 'apv-waiting' %}
+              {% elif apv_cls == 'apv-approve' %}
+              {% elif apv_cls == 'apv-reject' %}
+              {% elif apv_cls == 'apv-done' %}
+              {% else %}{% endif %}
+              {{ apv_lbl }}
+            </span>
+          </div>
+        </div>
+
+        <!-- action bar -->
+        <div class="tk-card-actions">
+          <!-- ปุ่ม expand ดูรายละเอียด inline -->
+          <button class="tk-btn-detail"
+                  onclick="toggleDetail('{{ r.request_id }}')"
+                  id="btn-{{ r.request_id }}">
+            ดูรายละเอียด
+            <svg class="chev" id="chev-{{ r.request_id }}" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polyline points="2,4 6.5,9 11,4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+
+          <!-- ปุ่มไปหน้า full detail -->
+          <a class="tk-btn-full"
+              href="{{ url_for(
+                    'track_detail',
+                    ticket_no=r.request_id,
+                    emp_id=emp_id,
+                    ticket=ticket_no
+              ) }}">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <use href="#i-external-link"/>
+            </svg>
+            เปิดหน้าเต็ม
+          </a>
+
+          {# ── ปุ่ม PDF เฉพาะ เบิก/ยืม/โอนย้าย ── #}
+          {% if r.request_typeform == '4' and r.has_transfer %}
+          <a class="tk-btn-pdf tk-btn-pdf--preview"
+             href="/preview-transfer/{{ r.request_id }}" target="_blank"
+             title="Preview เอกสารโอนย้าย">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <use href="#i-eye"/>
+            </svg>
+            Preview
+          </a>
+          <!-- <a class="tk-btn-pdf tk-btn-pdf--download"
+             href="/download-transfer/{{ r.request_id }}"
+             title="Download PDF">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <use href="#i-download"/>
+            </svg>
+            PDF
+          </a> -->
+          {% endif %}
+        </div>
+
+        <!-- expandable detail panel -->
+        <div class="tk-detail-panel" id="panel-{{ r.request_id }}">
+          <div class="dp-row">
+            <span class="dp-label">รหัสพนักงาน</span>
+            <span class="dp-val">{{ r.requester_empcode or '—' }}</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">แผนก</span>
+            <span class="dp-val">{{ r.requester_dept or '—' }}</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">เบอร์โทร</span>
+            <span class="dp-val">{{ r.requester_tel or '—' }}</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">ประเภท</span>
+            <span class="dp-val">{{ r.request_category or type_lbl }}</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">สถานะ</span>
+            <span class="dp-val">
+              <span class="apv-badge {{ apv_cls }}">{{ apv_lbl }}</span>
+            </span>
+          </div>
+          {% if r.request_remark %}
+          <div style="margin-top:10px;">
+            <div class="dp-remark-label">รายละเอียดปัญหา</div>
+            <div class="dp-remark">{{ r.display_remark or r.request_remark }}</div>
+          </div>
+          {% endif %}
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+
+    {% elif ticket_no or emp_id %}
+    <div class="track-empty">
+      <svg width="40" height="40" fill="none" stroke="var(--text-muted)" stroke-width="1.2">
+        <use href="#i-inbox"/>
+      </svg>
+      <p>ไม่พบคำขอที่ตรงกับเงื่อนไขที่ค้นหา</p>
+    </div>
+    {% endif %}
+  {% endif %}
+
+</div>
+
+<script>
+function toggleDetail(id) {
+  const panel = document.getElementById('panel-' + id);
+  const chev  = document.getElementById('chev-'  + id);
+  const isOpen = panel.classList.contains('open');
+  panel.classList.toggle('open', !isOpen);
+  chev.classList.toggle('open',  !isOpen);
+}
+</script>
+{% endblock %}

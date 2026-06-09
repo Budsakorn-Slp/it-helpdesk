@@ -1,0 +1,1248 @@
+{% extends "base.html" %}
+{% block title %}รายละเอียด {{ ticket_no }}{% endblock %}
+{% block breadcrumb %}
+<a href="{{ url_for('track') }}">ติดตามสถานะ</a>
+<span class="bc-sep">/</span>
+<span class="bc-cur">{{ ticket_no }}</span>
+{% endblock %}
+{% block content %}
+<style>
+/* ── APPROVER PILL ── */
+.apv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .78rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.apv-pill--Waiting  { background: #fef3c7; color: #92400e; }
+.apv-pill--Approve  { background: #d1fae5; color: #065f46; }
+.apv-pill--Reject   { background: #fee2e2; color: #991b1b; }
+.apv-pill--Done     { background: #dbeafe; color: #1e40af; }
+.apv-pill--         { background: #f3f4f6; color: #374151; }
+
+/* ── ACTION CARD ── */
+.action-card {
+  margin-top: 14px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.action-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: #f8f9ff;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 700;
+  font-size: .78rem;
+  color: #1e1b4b;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.action-card-body { padding: 14px 16px; background: #fff; }
+
+/* ── BADGE DOT ── */
+.badge-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dot-green  { background-color: #16a34a; }
+.dot-yellow { background-color: #f59e0b; }
+.dot-gray   { background-color: #9ca3af; }
+
+/* ── INFO ROW ── */
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: .82rem;
+  gap: 8px;
+}
+.info-row:last-child { border-bottom: none; }
+.info-row .lbl { color: #6b7280; flex-shrink: 0; }
+.info-row .val { font-weight: 500; text-align: right; }
+
+/* ── STATUS BADGE ── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: .74rem;
+  font-weight: 600;
+}
+.status-waiting   { background: #fef3c7; color: #92400e; }
+.status-confirmed { background: #d1fae5; color: #065f46; }
+.status-none      { background: #f3f4f6; color: #6b7280; }
+
+/* ── BUTTONS ── */
+.action-btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding-top: 10px;
+}
+.btn-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s, transform .1s;
+}
+.btn-action:active   { transform: scale(.97); }
+.btn-action:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn-blue  { background: #5b5ef4; color: #fff; }
+.btn-amber { background: #f59e0b; color: #fff; }
+.btn-gray  { background: #6b7280; color: #fff; }
+.btn-green { background: #16a34a; color: #fff; }
+
+/* ── COOLDOWN BAR ── */
+.cooldown-bar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  font-size: .74rem;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+.cooldown-bar.show { display: flex; }
+.cooldown-time { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ── INFO NOTE ── */
+.info-note {
+  font-size: .78rem;
+  color: #374151;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+/* ── CONFIRM MODAL ── */
+.cmodal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+.cmodal-overlay.show { display: flex; }
+.cmodal-box {
+  width: 340px;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  animation: modalIn .2s ease;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(.93) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0); }
+}
+.cmodal-head {
+  padding: 16px 18px 12px;
+  font-weight: 700;
+  font-size: .95rem;
+  border-bottom: 1px solid #f3f4f6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cmodal-body { padding: 14px 18px; font-size: .83rem; color: #374151; line-height: 1.6; }
+.cmodal-foot {
+  padding: 12px 18px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 1px solid #f3f4f6;
+}
+.cmodal-btn-cancel {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #374151;
+  font-size: .82rem;
+  cursor: pointer;
+}
+.cmodal-btn-ok {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── RECEIVER PICKER MODAL ── */
+.rpicker-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+.rpicker-overlay.show { display: flex; }
+.rpicker-box {
+  width: 360px;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+}
+.rpicker-head {
+  padding: 16px 18px 12px;
+  font-weight: 700;
+  font-size: .95rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+.rpicker-body { padding: 16px 18px; }
+.rpicker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid #e5e7eb;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.rpicker-option:hover    { border-color: #5b5ef4; background: #f8f9ff; }
+.rpicker-option.selected { border-color: #5b5ef4; background: #f0f0ff; }
+.rpicker-option input[type=radio] { accent-color: #5b5ef4; }
+.rpicker-option-label { font-size: .85rem; font-weight: 600; }
+.rpicker-option-desc  { font-size: .75rem; color: #6b7280; }
+.rpicker-empinput {
+  margin-top: 4px;
+  padding: 9px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: .83rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+.rpicker-foot {
+  padding: 12px 18px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 1px solid #f3f4f6;
+}
+</style>
+{# ══════════════════════════════════════════════════════ #}
+{# APPROVER STATUS VARIABLES                             #}
+{# ══════════════════════════════════════════════════════ #}
+{% set apv = item.approver_status or '' %}
+
+{% if apv == 'Waiting' %}
+  {% set apv_label = 'รออนุมัติ' %}
+  {% set apv_color = '#92400e' %}
+  {% set apv_bg    = '#fef3c7' %}
+  {% set apv_icon  = '⏳' %}
+
+{% elif apv == 'Approve' %}
+  {% set apv_color = '#065f46' %}
+  {% set apv_bg    = '#d1fae5' %}
+  {% set apv_icon  = '✅' %}
+
+  {% if transfer %}
+    {% if transfer.transfer_type == 'TRANSFER' %}
+      {% if transfer.receiver_status == 'Confirmed' %}
+        {% set apv_label = 'อยู่ระหว่างรอปิดงานโดย IT' %}
+      {% else %}
+        {% set apv_label = 'อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม' %}
+      {% endif %}
+    {% elif transfer.transfer_type in ['DISPOSE', 'SALE'] %}
+      {% if transfer.receiver_status == 'Confirmed' and transfer.manager_approve_date %}
+        {% set apv_label = 'อยู่ระหว่างรอปิดงานโดย IT' %}
+      {% else %}
+        {% set apv_label = 'อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม' %}
+      {% endif %}
+    {% elif transfer.transfer_type in ['BORROW', 'REPAIR'] %}
+      {% if transfer.status == 'WAITING_IT' or transfer.receiver_status == 'Confirmed' %}
+        {% set apv_label = 'อยู่ระหว่างรอปิดงานโดย IT' %}
+      {% else %}
+        {% set apv_label = 'อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม' %}
+      {% endif %}
+    {% else %}
+      {% set apv_label = 'อนุมัติแล้ว / รอ IT ดำเนินการ' %}
+    {% endif %}
+  {% else %}
+    {% set apv_label = 'อนุมัติแล้ว / รอ IT ดำเนินการ' %}
+  {% endif %}
+
+{% elif apv == 'Reject' %}
+  {% set apv_label = 'ยกเลิก' %}
+  {% set apv_color = '#991b1b' %}
+  {% set apv_bg    = '#fee2e2' %}
+  {% set apv_icon  = '❌' %}
+
+{% elif apv == 'Done' %}
+  {% set apv_label = 'เสร็จสิ้น' %}
+  {% set apv_color = '#1e40af' %}
+  {% set apv_bg    = '#dbeafe' %}
+  {% set apv_icon  = '🎉' %}
+
+{% else %}
+  {% set apv_label = '-' %}
+  {% set apv_color = '#374151' %}
+  {% set apv_bg    = '#f3f4f6' %}
+  {% set apv_icon  = '📋' %}
+{% endif %}
+
+<div class="form-wrap">
+  <div class="back-row">
+    <a href="{{ url_for('track', emp_id=emp_id, ticket=ticket) }}" class="back-btn">
+      <svg width="15" height="15"><use href="#i-arrow-left"/></svg>
+    </a>
+    <span class="pg-title">รายละเอียดคำขอ</span>
+  </div>
+  {% if error %}
+  <div class="track-alert track-alert--error">{{ error }}</div>
+  {% elif not item %}
+  <div class="track-empty">
+    <svg width="40" height="40" fill="none" stroke="var(--text-muted)" stroke-width="1.2"><use href="#i-inbox"/></svg>
+    <p>ไม่พบหมายเลข <strong>{{ ticket_no }}</strong></p>
+  </div>
+
+  {% else %}
+
+  <!-- Header -->
+  <div class="detail-head">
+    <div class="detail-head-left">
+      <div class="detail-ticket-label">Request ID</div>
+      <div class="detail-ticket-no">{{ item.request_id }}</div>
+      <div class="detail-cat">{{ item.request_category or item.request_typeform or '—' }}</div>
+    </div>
+    <div class="detail-head-right">
+      <span class="apv-pill apv-pill--{{ apv }}">{{ apv_label }}</span>
+    </div>
+  </div>
+
+  <!-- Action: Waiting -->
+  {% if item.approver_status == 'Waiting' %}
+  <div class="detail-card" style="margin-top:14px;">
+    <div class="detail-card-title">Action</div>
+    <div class="detail-row">
+      <span class="dr-label">แจ้งเตือนอีกครั้ง</span>
+      <span class="dr-val" style="text-align:right;">
+        <button id="btn-resend"
+                onclick="resendApprover('{{ item.request_id }}')"
+                style="background:#eff6ff; color:#1d4ed8; border:1px solid #93c5fd;
+                       border-radius:8px; padding:8px 12px; font-size:.78rem;
+                       font-weight:600; cursor:pointer;">
+          🔔 แจ้งเตือน
+        </button>
+      </span>
+    </div>
+    <div id="resend-status" style="margin-top:8px; font-size:.75rem; color:#6b7280;"></div>
+    <div id="resend-meta"
+         data-count="{{ item.resend_count or 0 }}"
+         data-last="{{ item.last_resend_at.strftime('%Y-%m-%d %H:%M:%S') if item.last_resend_at else '' }}">
+    </div>
+    <div class="detail-row" style="margin-top:10px; border-top:1px solid #f3f4f6; padding-top:10px;">
+      <span class="dr-label" style="color:#dc2626;">ยกเลิกคำขอ</span>
+      <span class="dr-val" style="text-align:right;">
+        <button id="btn-cancel"
+                onclick="cancelRequest('{{ item.request_id }}')"
+                style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5;
+                       border-radius:8px; padding:8px 12px; font-size:.78rem;
+                       font-weight:600; cursor:pointer;">
+          ยกเลิกคำขอ
+        </button>
+      </span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Action: Approve / Done + Transfer -->
+  {% if item.approver_status in ['Approve', 'Done'] and transfer %}
+
+  <!-- SENDER NAME (TRANSFER เท่านั้น) -->
+  {% if transfer.transfer_type == 'TRANSFER' %}
+  <div class="action-card" style="margin-top:14px;">
+    <div class="action-card-header">
+      {% if transfer.sender_name %}
+        <span class="badge-dot dot-green"></span>
+      {% else %}
+        <span class="badge-dot dot-gray"></span>
+      {% endif %}
+      &nbsp;ชื่อผู้ส่ง (SENDER)
+    </div>
+    <div class="action-card-body">
+      {% if transfer.sender_name %}
+      <div class="info-row">
+        <span class="lbl">ผู้ส่ง</span>
+        <span class="val" id="sender-display">{{ transfer.sender_name }}</span>
+      </div>
+      {% endif %}
+      <div id="sender-edit-area" style="{{ 'display:none' if transfer.sender_name else '' }}">
+        <div class="info-row" style="border-bottom:none; padding-bottom:4px;">
+          <span class="lbl">ชื่อผู้ส่ง</span>
+          <span class="val">
+            <input id="input-sender-name"
+                   type="text"
+                   value="{{ transfer.sender_name or '' }}"
+                   placeholder="กรอกชื่อผู้ส่ง"
+                   style="padding:7px 10px; border:1px solid #d1d5db; border-radius:8px;font-size:.82rem; width:100%; box-sizing:border-box;">
+          </span>
+        </div>
+      </div>
+      <div class="action-btn-row" style="padding-top:8px;">
+        {% if transfer.sender_name %}
+        <button id="btn-sender-edit" class="btn-action btn-gray"
+                onclick="toggleSenderEdit()">✏️ แก้ไข</button>
+        {% endif %}
+        <button id="btn-sender-save" class="btn-action btn-blue"
+                style="{{ 'display:none' if transfer.sender_name else '' }}"
+                onclick="saveSenderName()">บันทึกชื่อผู้ส่ง</button>
+      </div>
+      <div id="sender-msg" style="font-size:.75rem; margin-top:6px; color:#6b7280;"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- RECEIVER APPROVAL -->
+  <div class="action-card">
+    <div class="action-card-header">
+      {% if transfer.receiver_status == 'Confirmed' %}
+        {% set dot_class = 'dot-green' %}
+      {% elif transfer.receiver_status == 'Waiting' %}
+        {% set dot_class = 'dot-yellow' %}
+      {% else %}
+        {% set dot_class = 'dot-gray' %}
+      {% endif %}
+      <span class="badge-dot {{ dot_class }}"></span>
+      &nbsp;RECEIVER APPROVAL
+    </div>
+    <div class="action-card-body">
+      <div class="info-row">
+        <span class="lbl">สถานะผู้รับ</span>
+        <span class="val">
+          {% if transfer.receiver_status == 'Confirmed' %}
+            <span class="status-badge status-confirmed">● ยืนยันรับแล้ว</span>
+          {% elif transfer.receiver_status == 'Waiting' %}
+            <span class="status-badge status-waiting">● รอผู้รับยืนยัน</span>
+          {% else %}
+            <span class="status-badge status-none">ยังไม่ได้ส่ง</span>
+          {% endif %}
+        </span>
+      </div>
+      {% if transfer.receiver_type %}
+      <div class="info-row">
+        <span class="lbl">ส่งให้</span>
+        <span class="val">
+          {% if transfer.receiver_type == 'warehouse' %}เจ้าหน้าที่คลัง
+          {% elif transfer.receiver_type == 'internal' %}พนักงาน
+          {% elif transfer.receiver_type == 'supplier' %}Supplier
+          {% else %}—{% endif %}
+        </span>
+      </div>
+      {% endif %}
+      {% if transfer.sender_name and transfer.receiver_type == 'supplier' %}
+      <div class="info-row">
+        <span class="lbl">Supplier</span>
+        <span class="val">{{ transfer.sender_name }}</span>
+      </div>
+      {% endif %}
+      {% if transfer.receiver_name and transfer.receiver_type != 'supplier' %}
+      <div class="info-row">
+        <span class="lbl">ผู้รับล่าสุด</span>
+        <span class="val">{{ transfer.receiver_name }} ({{ transfer.receiver_emp_code }})</span>
+      </div>
+      {% endif %}
+      {% if transfer.receiver_sent_at %}
+      <div class="info-row">
+        <span class="lbl">ส่งล่าสุด</span>
+        <span class="val">{{ transfer.receiver_sent_at }}</span>
+      </div>
+      {% endif %}
+      {% if transfer.receiver_status != 'Confirmed' %}
+      <div class="action-btn-row">
+        {% if not transfer.receiver_status %}
+          <button class="btn-action btn-blue" onclick="confirmAction('receiver-select')">📋 เลือกผู้รับ</button>
+        {% elif transfer.receiver_status == 'Waiting' %}
+          <button id="btn-resend-receiver" class="btn-action btn-amber"
+                  onclick="confirmAction('receiver-resend')"
+                  data-sent="{{ transfer.receiver_sent_at or '' }}">
+            🔔 แจ้งเตือนอีกครั้ง
+          </button>
+          <button id="btn-edit-receiver" class="btn-action btn-gray"
+                  onclick="confirmAction('receiver-edit')"
+                  data-sent="{{ transfer.receiver_sent_at or '' }}">
+            ✏️ แก้ไขผู้รับ
+          </button>
+        {% endif %}
+      </div>
+      <div id="cooldown-receiver" class="cooldown-bar">
+        ⏱ ดำเนินการได้อีกครั้งใน <span id="cooldown-receiver-time" class="cooldown-time">15:00</span>
+      </div>
+      {% endif %}
+
+      {% if transfer.receiver_type == 'supplier' and transfer.receiver_status == 'Confirmed' %}
+      <div class="info-row" style="border-top:1px solid #f3f4f6; margin-top:8px; padding-top:8px;">
+        <span class="lbl">แก้ไขชื่อ Supplier</span>
+        <div class="val" style="display:flex; justify-content:flex-end;">
+          <div id="supplier-view-mode">
+            <button type="button" onclick="toggleSupplierEdit(true)"
+                    style="display:inline-flex; align-items:center; gap:5px;
+                           padding:6px 14px; border:none; border-radius:8px;
+                           background:#6b7280; color:#fff;
+                           font-size:.78rem; font-weight:600; cursor:pointer;">
+              ✏️ แก้ไข
+            </button>
+          </div>
+          <div id="supplier-edit-mode" style="display:none; align-items:center; gap:6px;">
+            <input type="text" id="supplier-name-input"
+                   value="{{ transfer.sender_name or '' }}"
+                   placeholder="กรอกชื่อ Supplier"
+                   style="padding:6px 10px; border:1px solid #d1d5db; border-radius:8px;
+                          font-size:.82rem; width:160px; outline:none;">
+            <button type="button" onclick="saveSupplierName('{{ item.request_id }}')"
+                    style="display:inline-flex; align-items:center; gap:5px;
+                           padding:6px 14px; border:none; border-radius:8px;
+                           background:#5b5ef4; color:#fff;
+                           font-size:.78rem; font-weight:600; cursor:pointer; white-space:nowrap;">
+              💾 บันทึก
+            </button>
+            <button type="button" onclick="toggleSupplierEdit(false)"
+                    style="display:inline-flex; align-items:center; justify-content:center;
+                           width:32px; height:32px; border:none; border-radius:8px;
+                           background:#f3f4f6; color:#6b7280;
+                           font-size:.85rem; font-weight:700; cursor:pointer;">
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- FINAL APPROVAL (DISPOSE / SALE) -->
+  {% if transfer.transfer_type in ['DISPOSE', 'SALE'] %}
+  <div class="action-card" style="margin-top:12px;">
+    <div class="action-card-header">
+      {% if transfer.manager_approve_date %}
+        {% set dot_class2 = 'dot-green' %}
+      {% elif transfer.manager_name %}
+        {% set dot_class2 = 'dot-yellow' %}
+      {% else %}
+        {% set dot_class2 = 'dot-gray' %}
+      {% endif %}
+      <span class="badge-dot {{ dot_class2 }}"></span>
+      &nbsp;FINAL APPROVAL
+    </div>
+    <div class="action-card-body">
+      <div class="info-note">
+        ผู้อนุมัติคนสุดท้ายคือ <strong>คุณพิเดช</strong>
+        — เมื่อกดส่ง ระบบจะแจ้งเตือนผ่าน LINE เพื่อขออนุมัติ
+      </div>
+      <div class="info-row">
+        <span class="lbl">สถานะ</span>
+        <span class="val">
+          {% if transfer.manager_approve_date %}
+            <span class="status-badge status-confirmed">● อนุมัติแล้ว</span>
+          {% elif transfer.manager_name %}
+            <span class="status-badge status-waiting">● รออนุมัติ</span>
+          {% else %}
+            <span class="status-badge status-none">ยังไม่ได้ส่ง</span>
+          {% endif %}
+        </span>
+      </div>
+      {% if transfer.manager_name %}
+      <div class="info-row">
+        <span class="lbl">ผู้อนุมัติ</span>
+        <span class="val">{{ transfer.manager_name }} ({{ transfer.manager_emp_code }})</span>
+      </div>
+      {% endif %}
+      {% if transfer.manager_approve_date %}
+      <div class="info-row">
+        <span class="lbl">อนุมัติเมื่อ</span>
+        <span class="val">{{ transfer.manager_approve_date }}</span>
+      </div>
+      {% endif %}
+      {% if not transfer.manager_approve_date %}
+      <div class="action-btn-row">
+        {% if not transfer.manager_name %}
+          <button class="btn-action btn-blue" onclick="confirmAction('manager-send')">
+            📨 ส่งผู้อนุมัติสุดท้าย
+          </button>
+        {% else %}
+          <button id="btn-resend-manager" class="btn-action btn-amber"
+                  onclick="confirmAction('manager-resend')">
+            🔔 แจ้งเตือนอีกครั้ง
+          </button>
+        {% endif %}
+      </div>
+      <div id="cooldown-manager" class="cooldown-bar">
+        ⏱ ดำเนินการได้อีกครั้งใน <span id="cooldown-manager-time" class="cooldown-time">15:00</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+  <div style="height:14px;"></div>
+
+  <!-- Info Grid -->
+  <div class="detail-grid">
+    <div class="detail-card">
+      <div class="detail-card-title">ข้อมูลผู้แจ้ง</div>
+      <div class="detail-row">
+        <span class="dr-label">รหัสพนักงาน</span>
+        <span class="dr-val">{{ item.requester_empcode or '—' }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="dr-label">ชื่อ-นามสกุล</span>
+        <span class="dr-val">
+          {{ ((item.requester_fname or '') ~ ' ' ~ (item.requester_lname or '')) | trim or '—' }}
+        </span>
+      </div>
+      <div class="detail-row">
+        <span class="dr-label">แผนก</span>
+        <span class="dr-val">{{ item.requester_dept or '—' }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="dr-label">เบอร์โทร</span>
+        <span class="dr-val">{{ item.requester_tel or '—' }}</span>
+      </div>
+    </div>
+
+    <div class="detail-card">
+      <div class="detail-card-title">รายละเอียดคำขอ</div>
+      <div class="detail-row">
+        <span class="dr-label">วันที่แจ้ง</span>
+        <span class="dr-val">{{ item.request_date or '—' }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="dr-label">อัปเดตล่าสุด</span>
+        <span class="dr-val">{{ item.updated_at.strftime('%d/%m/%Y %H:%M') if item.updated_at else '—' }}</span>
+      </div>
+      {% if item.request_file %}
+      <div class="detail-row">
+        <span class="dr-label">ไฟล์แนบ</span>
+        <span class="dr-val">
+          <a href="{{ url_for('static', filename='uploads/' ~ item.request_file) }}"
+             target="_blank" class="attach-link">
+            <svg width="13" height="13" fill="none" stroke-width="2"><use href="#i-paperclip"/></svg>
+            {{ item.request_file }}
+          </a>
+        </span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Transfer Detail -->
+  {% if transfer %}
+  <div class="detail-card" style="margin-top:14px;">
+    <div class="detail-card-title">รายละเอียดการโอนย้าย — {{ transfer.transfer_type_name or transfer.transfer_type }}</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;">
+      <div style="border:1px solid #e5e7eb; border-top:3px solid #e05c1a; border-radius:8px; padding:12px;">
+        <div style="font-weight:700; color:#e05c1a; font-size:.82rem; margin-bottom:8px;">▶ ต้นทาง (FROM)</div>
+        <div class="detail-row"><span class="dr-label">แผนก</span><span class="dr-val">{{ transfer.from_dept or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">Site</span><span class="dr-val">{{ transfer.from_site_name or transfer.from_site or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">ฝ่าย</span><span class="dr-val">{{ transfer.from_division_name or transfer.from_division or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">Cost Code</span><span class="dr-val">{{ transfer.from_cost_code or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">Location</span><span class="dr-val">{{ transfer.from_location_name or transfer.from_location or '—' }}</span></div>
+      </div>
+      <div style="border:1px solid #e5e7eb; border-top:3px solid #1a9e6e; border-radius:8px; padding:12px;">
+        <div style="font-weight:700; color:#1a9e6e; font-size:.82rem; margin-bottom:8px;">▶ ปลายทาง (TO)</div>
+        <div class="detail-row"><span class="dr-label">แผนก</span><span class="dr-val">{{ transfer.to_dept or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">Site</span><span class="dr-val">{{ transfer.to_site_name or transfer.to_site or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">ฝ่าย</span><span class="dr-val">{{ transfer.to_division_name or transfer.to_division or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">Cost Code</span><span class="dr-val">{{ transfer.to_cost_code or '—' }}</span></div>
+        <div class="detail-row"><span class="dr-label">Location</span><span class="dr-val">{{ transfer.to_location_name or transfer.to_location or '—' }}</span></div>
+      </div>
+    </div>
+
+    {% if transfer.buyer_name %}
+    <div style="margin-top:10px; padding:10px; background:#fff8f3; border-radius:8px; border:1px solid #fde8d0;">
+      <div style="font-weight:700; font-size:.8rem; color:#c2410c; margin-bottom:6px;">ข้อมูลผู้ซื้อ</div>
+      <div class="detail-row"><span class="dr-label">ชื่อผู้ซื้อ</span><span class="dr-val">{{ transfer.buyer_name }}</span></div>
+      {% if transfer.buyer_address %}<div class="detail-row"><span class="dr-label">ที่อยู่</span><span class="dr-val">{{ transfer.buyer_address }}</span></div>{% endif %}
+      {% if transfer.buyer_price %}<div class="detail-row"><span class="dr-label">ราคา</span><span class="dr-val">{{ transfer.buyer_price }} บาท</span></div>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if assets %}
+    <div style="margin-top:12px;">
+      <div style="font-weight:700; font-size:.82rem; color:#374151; margin-bottom:6px;">รายการทรัพย์สิน ({{ assets|length }} รายการ)</div>
+      <table style="width:100%; border-collapse:collapse; font-size:.8rem;">
+        <thead>
+          <tr>
+            <th style="background:#1a3c6e; color:#fff; padding:5px 8px; text-align:center; width:32px;">ที่</th>
+            <th style="background:#1a3c6e; color:#fff; padding:5px 8px; text-align:left; width:100px;">รหัส</th>
+            <th style="background:#1a3c6e; color:#fff; padding:5px 8px; text-align:left;">ชื่อทรัพย์สิน</th>
+            <th style="background:#1a3c6e; color:#fff; padding:5px 8px; text-align:left; width:120px;">หมายเหตุ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in assets %}
+          <tr{% if loop.index % 2 == 0 %} style="background:#f5f7fb;"{% endif %}>
+            <td style="border:1px solid #e5e7eb; padding:4px 8px; text-align:center;">{{ a.item_no }}</td>
+            <td style="border:1px solid #e5e7eb; padding:4px 8px;">{{ a.asset_code or '—' }}</td>
+            <td style="border:1px solid #e5e7eb; padding:4px 8px;">{{ a.asset_name or '—' }}</td>
+            <td style="border:1px solid #e5e7eb; padding:4px 8px; color:#6b7280;">{{ a.asset_remark or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if transfer.transfer_type == 'TRANSFER' and (transfer.sender_name or transfer.receiver_name) %}
+    <div style="margin-top:14px; padding:12px 14px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px;">
+      <div style="font-weight:700; font-size:.8rem; color:#0369a1; margin-bottom:10px;">ลายเซ็นผู้ส่ง / ผู้รับ</div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:120px; text-align:center; padding:10px; background:#fff; border-radius:8px; border:1px solid #e5e7eb;">
+          <div style="font-size:.75rem; color:#6b7280; margin-bottom:4px;">ผู้ส่ง</div>
+          <div style="font-weight:700; font-size:.88rem; color:#111;">{{ transfer.sender_name or '—' }}</div>
+        </div>
+        <div style="flex:1; min-width:120px; text-align:center; padding:10px; background:#fff; border-radius:8px; border:1px solid #e5e7eb;">
+          <div style="font-size:.75rem; color:#6b7280; margin-bottom:4px;">ผู้รับ</div>
+          <div style="font-weight:700; font-size:.88rem; color:#111;">{{ transfer.receiver_name or '—' }}</div>
+          {% if transfer.receiver_approved_at %}
+          <div style="font-size:.72rem; color:#6b7280; margin-top:3px;">{{ transfer.receiver_approved_at }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% elif transfer.sender_name %}
+    <div style="margin-top:14px; padding:12px 14px; background:#fefce8; border:1px solid #fde68a; border-radius:10px;">
+      <div style="font-weight:700; font-size:.8rem; color:#92400e; margin-bottom:10px;">✍️ ลายเซ็น Supplier</div>
+      <div style="text-align:center; padding:10px; background:#fff; border-radius:8px; border:1px solid #e5e7eb;">
+        <div style="font-size:.75rem; color:#6b7280; margin-bottom:4px;">Supplier</div>
+        <div style="font-weight:700; font-size:.88rem; color:#111;">{{ transfer.sender_name }}</div>
+        {% if transfer.receiver_approved_at %}
+        <div style="font-size:.72rem; color:#6b7280; margin-top:3px;">{{ transfer.receiver_approved_at }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <div class="detail-card" style="margin-top:14px;">
+    <div class="detail-card-title">รายละเอียดปัญหา</div>
+    <div class="detail-desc">{{ item.request_remark or '—' }}</div>
+  </div>
+  {% endif %}
+
+  {% if item.request_solution %}
+  <div class="detail-card detail-card--note" style="margin-top:14px;">
+    <div class="detail-card-title">วิธีแก้ไข / หมายเหตุจากทีม IT</div>
+    <div class="detail-desc">{{ item.request_solution }}</div>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+
+<!-- ── CONFIRM MODAL ── -->
+<div id="confirm-modal" class="cmodal-overlay">
+  <div class="cmodal-box">
+    <div class="cmodal-head">
+      <span id="cmodal-icon">📋</span>
+      <span id="cmodal-title">ยืนยันการดำเนินการ</span>
+    </div>
+    <div class="cmodal-body" id="cmodal-body">คุณต้องการดำเนินการนี้ใช่หรือไม่?</div>
+    <div class="cmodal-foot">
+      <button class="cmodal-btn-cancel" onclick="closeConfirmModal()">ยกเลิก</button>
+      <button id="cmodal-ok" class="cmodal-btn-ok" style="background:#5b5ef4" onclick="doConfirmedAction()">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── RECEIVER PICKER MODAL ── -->
+<div id="rpicker-modal" class="rpicker-overlay">
+  <div class="rpicker-box">
+    <div class="rpicker-head">เลือกผู้รับ</div>
+    <div class="rpicker-body">
+      {% set tt = transfer.transfer_type if transfer else '' %}
+
+      {% if tt in ['DISPOSE', 'TRANSFER'] %}
+      <label class="rpicker-option selected" id="opt-warehouse" onclick="selectReceiverType('warehouse')">
+        <input type="radio" name="receiver-type" value="warehouse" checked>
+        <div>
+          <div class="rpicker-option-label">เจ้าหน้าที่คลัง</div>
+          <div class="rpicker-option-desc">ส่งให้เจ้าหน้าที่คลัง</div>
+        </div>
+      </label>
+      {% endif %}
+
+      {% if tt in ['DISPOSE', 'TRANSFER', 'SALE', 'BORROW'] %}
+      <label class="rpicker-option{% if tt == 'BORROW' %} selected{% endif %}"
+             id="opt-internal" onclick="selectReceiverType('internal')">
+        <input type="radio" name="receiver-type" value="internal" {% if tt == 'BORROW' %}checked{% endif %}>
+        <div style="width:100%">
+          <div class="rpicker-option-label">พนักงาน (ระบุรหัส)</div>
+          <div class="rpicker-option-desc">ระบุรหัสพนักงานผู้รับ</div>
+          <input id="receiver-empcode"
+                 class="rpicker-empinput"
+                 type="text"
+                 inputmode="numeric"
+                 pattern="[0-9]*"
+                 maxlength="10"
+                 placeholder="กรอกรหัสพนักงาน"
+                 style="display:{% if tt == 'BORROW' %}block{% else %}none{% endif %}; margin-top:8px;"
+                 onclick="event.stopPropagation()"
+                 oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+        </div>
+      </label>
+      {% endif %}
+
+      {% if tt in ['SALE', 'REPAIR'] %}
+      <label class="rpicker-option{% if tt == 'REPAIR' %} selected{% endif %}"
+             id="opt-supplier" onclick="selectReceiverType('supplier')">
+        <input type="radio" name="receiver-type" value="supplier" {% if tt == 'REPAIR' %}checked{% endif %}>
+        <div style="width:100%">
+          <div class="rpicker-option-label">🚚 Supplier</div>
+          <div class="rpicker-option-desc">กรอกชื่อ Supplier</div>
+          <input id="receiver-supplier-name"
+                 class="rpicker-empinput"
+                 type="text"
+                 maxlength="200"
+                 placeholder="กรอกชื่อ Supplier"
+                 style="display:{% if tt == 'REPAIR' %}block{% else %}none{% endif %}; margin-top:8px;"
+                 onclick="event.stopPropagation()">
+        </div>
+      </label>
+      {% endif %}
+    </div>
+    <div class="rpicker-foot">
+      <button class="cmodal-btn-cancel" onclick="closeReceiverPicker()">ยกเลิก</button>
+      <button class="cmodal-btn-ok btn-blue" style="background:#5b5ef4" onclick="submitReceiverPicker()">ส่งเอกสาร</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  COOLDOWN UTILITIES
+// ═══════════════════════════════════════════════════════
+const COOLDOWN_SEC = 900; // 15 นาที
+
+function calcRemain(sentStr) {
+  if (!sentStr) return 0;
+  const sent = new Date(sentStr.trim().replace(" ", "T"));
+  const diff = (Date.now() - sent.getTime()) / 1000;
+  return Math.max(0, COOLDOWN_SEC - Math.floor(diff));
+}
+
+function startCooldownBar(barId, timeId, sec, onDone) {
+  const bar  = document.getElementById(barId);
+  const span = document.getElementById(timeId);
+  if (!bar || !span || sec <= 0) { if (onDone) onDone(); return; }
+  bar.classList.add("show");
+  const tick = setInterval(() => {
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    span.textContent = `${m}:${s}`;
+    sec--;
+    if (sec < 0) {
+      clearInterval(tick);
+      bar.classList.remove("show");
+      if (onDone) onDone();
+    }
+  }, 1000);
+}
+
+function disableBtn(id) {
+  const b = document.getElementById(id);
+  if (b) b.disabled = true;
+}
+function enableBtn(id, label) {
+  const b = document.getElementById(id);
+  if (b) { b.disabled = false; if (label) b.innerHTML = label; }
+}
+
+// ── Manager cooldown restore from localStorage ──
+(function() {
+  var key     = "mgr_sent_{{ item.request_id }}";
+  var stored  = localStorage.getItem(key);
+  if (!stored) return;
+  var elapsed = (Date.now() - parseInt(stored)) / 1000;
+  var rem     = Math.max(0, 900 - Math.floor(elapsed));
+  if (rem > 0) {
+    window._mgrCooldownSec = rem;
+  } else {
+    localStorage.removeItem(key);
+  }
+})();
+
+// ── Init cooldown on load ──
+window.addEventListener("DOMContentLoaded", () => {
+  // approver resend cooldown
+  const meta = document.getElementById("resend-meta");
+  if (meta && meta.dataset.last) {
+    const rem = calcRemain(meta.dataset.last);
+    if (rem > 0) startCooldown(rem);
+  }
+
+  // receiver cooldown
+  const rBtn = document.getElementById("btn-resend-receiver");
+  if (rBtn && rBtn.dataset.sent) {
+    const rem = calcRemain(rBtn.dataset.sent);
+    if (rem > 0) {
+      disableBtn("btn-resend-receiver");
+      disableBtn("btn-edit-receiver");
+      startCooldownBar("cooldown-receiver", "cooldown-receiver-time", rem, () => {
+        enableBtn("btn-resend-receiver", "🔔 แจ้งเตือนอีกครั้ง");
+        enableBtn("btn-edit-receiver", "✏️ แก้ไขผู้รับ");
+      });
+    }
+  }
+
+  // manager cooldown
+  if (window._mgrCooldownSec > 0) {
+    disableBtn("btn-resend-manager");
+    startCooldownBar("cooldown-manager", "cooldown-manager-time", window._mgrCooldownSec, () => {
+      enableBtn("btn-resend-manager", "🔔 แจ้งเตือนอีกครั้ง");
+    });
+    window._mgrCooldownSec = 0;
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+//  CONFIRM MODAL
+// ═══════════════════════════════════════════════════════
+let _pendingAction = null;
+
+const ACTIONS = {
+  "receiver-select": { icon:"📋", title:"เลือกผู้รับเอกสาร",          body:"กรุณาเลือกประเภทผู้รับ แล้วกดยืนยัน",            color:"#5b5ef4" },
+  "receiver-resend": { icon:"🔔", title:"แจ้งเตือนผู้รับอีกครั้ง",    body:"ระบบจะส่ง LINE แจ้งเตือนไปยังผู้รับอีกครั้ง",    color:"#f59e0b" },
+  "receiver-edit":   { icon:"✏️", title:"แก้ไขผู้รับ",                body:"กรุณาเลือกผู้รับใหม่ แล้วกดยืนยัน",               color:"#6b7280" },
+  "manager-send":    { icon:"📨", title:"ส่งผู้อนุมัติสุดท้าย",        body:"ระบบจะส่ง LINE ไปยัง <strong>คุณพิเดช</strong> เพื่อขออนุมัติ<br>ดำเนินการต่อใช่ไหม?", color:"#5b5ef4" },
+  "manager-resend":  { icon:"🔔", title:"แจ้งเตือนผู้อนุมัติอีกครั้ง", body:"ระบบจะส่ง LINE ไปยัง <strong>คุณพิเดช</strong> อีกครั้ง<br>ดำเนินการต่อใช่ไหม?",    color:"#f59e0b" },
+};
+
+function confirmAction(action) {
+  const cfg = ACTIONS[action];
+  if (!cfg) return;
+  _pendingAction = action;
+  document.getElementById("cmodal-icon").textContent        = cfg.icon;
+  document.getElementById("cmodal-title").textContent       = cfg.title;
+  document.getElementById("cmodal-body").innerHTML          = cfg.body;
+  document.getElementById("cmodal-ok").style.background     = cfg.color;
+  document.getElementById("confirm-modal").classList.add("show");
+}
+
+function closeConfirmModal() {
+  document.getElementById("confirm-modal").classList.remove("show");
+  _pendingAction = null;
+}
+
+function doConfirmedAction() {
+  const action = _pendingAction;
+  closeConfirmModal();
+  if (!action) return;
+  if (action === "receiver-select" || action === "receiver-edit") {
+    openReceiverPicker();
+  } else if (action === "receiver-resend") {
+    doResendReceiver();
+  } else if (action === "manager-send") {
+    doSendManager();
+  } else if (action === "manager-resend") {
+    doResendManager();
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  RECEIVER PICKER
+// ═══════════════════════════════════════════════════════
+function openReceiverPicker() {
+  document.getElementById("rpicker-modal").classList.add("show");
+}
+function closeReceiverPicker() {
+  document.getElementById("rpicker-modal").classList.remove("show");
+}
+
+function selectReceiverType(type) {
+  ["warehouse", "internal", "supplier"].forEach(t => {
+    document.getElementById("opt-" + t)?.classList.remove("selected");
+  });
+  document.getElementById("opt-" + type)?.classList.add("selected");
+  document.querySelectorAll('input[name="receiver-type"]').forEach(r => {
+    r.checked = (r.value === type);
+  });
+  const empInput      = document.getElementById("receiver-empcode");
+  const supplierInput = document.getElementById("receiver-supplier-name");
+  if (empInput)      empInput.style.display      = (type === "internal")  ? "block" : "none";
+  if (supplierInput) supplierInput.style.display = (type === "supplier")  ? "block" : "none";
+}
+
+async function submitReceiverPicker() {
+  const type = document.querySelector('input[name="receiver-type"]:checked')?.value;
+  let body = { receiver_type: type };
+
+  if (type === "internal") {
+    const emp = document.getElementById("receiver-empcode")?.value.trim();
+    if (!emp) { alert("กรอกรหัสพนักงาน"); return; }
+    body.emp_code = emp;
+  } else if (type === "supplier") {
+    const sname = document.getElementById("receiver-supplier-name")?.value.trim();
+    if (!sname) { alert("กรอกชื่อ Supplier"); return; }
+    // IMPORTANT: save ลง SENDER_NAME
+    body.sender_name = sname;
+  }
+
+  closeReceiverPicker();
+
+  try {
+    const res  = await fetch(`/api/send-receiver/{{ item.request_id }}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.message || "เกิดข้อผิดพลาด"); return; }
+    location.reload();
+  } catch(e) {
+    console.error(e);
+    alert("เกิดข้อผิดพลาด");
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  RESEND RECEIVER
+// ═══════════════════════════════════════════════════════
+async function doResendReceiver() {
+  disableBtn("btn-resend-receiver");
+  disableBtn("btn-edit-receiver");
+  try {
+    const res  = await fetch(`/api/resend-receiver/{{ item.request_id }}`, { method: "POST" });
+    const data = await res.json();
+    if (!data.ok) {
+      if (data.cooldown) {
+        startCooldownBar("cooldown-receiver", "cooldown-receiver-time", data.remain, () => {
+          enableBtn("btn-resend-receiver", "🔔 แจ้งเตือนอีกครั้ง");
+          enableBtn("btn-edit-receiver", "✏️ แก้ไขผู้รับ");
+        });
+        return;
+      }
+      alert(data.message || "เกิดข้อผิดพลาด");
+      enableBtn("btn-resend-receiver", "🔔 แจ้งเตือนอีกครั้ง");
+      enableBtn("btn-edit-receiver", "✏️ แก้ไขผู้รับ");
+      return;
+    }
+    startCooldownBar("cooldown-receiver", "cooldown-receiver-time", COOLDOWN_SEC, () => {
+      enableBtn("btn-resend-receiver", "🔔 แจ้งเตือนอีกครั้ง");
+      enableBtn("btn-edit-receiver", "✏️ แก้ไขผู้รับ");
+    });
+  } catch(e) {
+    alert("เกิดข้อผิดพลาด");
+    enableBtn("btn-resend-receiver", "🔔 แจ้งเตือนอีกครั้ง");
+    enableBtn("btn-edit-receiver", "✏️ แก้ไขผู้รับ");
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  SEND / RESEND MANAGER
+// ═══════════════════════════════════════════════════════
+async function doSendManager() {
+  try {
+    const res  = await fetch(`/api/send-manager/{{ item.request_id }}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    });
+    const data = await res.json();
+    if (data.ok) {
+      localStorage.setItem("mgr_sent_{{ item.request_id }}", Date.now().toString());
+      location.reload();
+    } else {
+      alert(data.message || "เกิดข้อผิดพลาด");
+    }
+  } catch(e) {
+    alert("เกิดข้อผิดพลาด");
+  }
+}
+
+async function doResendManager() {
+  disableBtn("btn-resend-manager");
+  try {
+    const res  = await fetch(`/api/send-manager/{{ item.request_id }}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.message || "เกิดข้อผิดพลาด");
+      enableBtn("btn-resend-manager", "🔔 แจ้งเตือนอีกครั้ง");
+      return;
+    }
+    localStorage.setItem("mgr_sent_{{ item.request_id }}", Date.now().toString());
+    startCooldownBar("cooldown-manager", "cooldown-manager-time", COOLDOWN_SEC, () => {
+      enableBtn("btn-resend-manager", "🔔 แจ้งเตือนอีกครั้ง");
+    });
+  } catch(e) {
+    alert("เกิดข้อผิดพลาด");
+    enableBtn("btn-resend-manager", "🔔 แจ้งเตือนอีกครั้ง");
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  APPROVER RESEND
+// ═══════════════════════════════════════════════════════
+async function resendApprover(ticketNo) {
+  const btn    = document.getElementById("btn-resend");
+  const status = document.getElementById("resend-status");
+  btn.disabled = true; btn.innerText = "กำลังส่ง...";
+  try {
+    const res  = await fetch(`/api/resend-approver/${ticketNo}`, { method: "POST" });
+    const data = await res.json();
+    if (!data.ok) {
+      if (data.cooldown) { startCooldown(data.remain); return; }
+      alert(data.message || "เกิดข้อผิดพลาด");
+      btn.disabled = false; btn.innerText = "🔔 แจ้งเตือน";
+      return;
+    }
+    if (status) status.innerHTML = `ส่งแจ้งเตือนแล้ว ${data.count} ครั้ง`;
+    startCooldown(COOLDOWN_SEC);
+  } catch(e) {
+    alert("เกิดข้อผิดพลาด");
+    btn.disabled = false; btn.innerText = "🔔 แจ้งเตือน";
+  }
+}
+
+function startCooldown(sec) {
+  const btn    = document.getElementById("btn-resend");
+  const status = document.getElementById("resend-status");
+  if (!btn) return;
+  btn.disabled = true; btn.style.background = "#9ca3af"; btn.style.cursor = "not-allowed";
+  const timer = setInterval(() => {
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    btn.innerText = `รอ ${m}:${s}`;
+    sec--;
+    if (sec < 0) {
+      clearInterval(timer);
+      btn.disabled = false; btn.style.background = "#5b5ef4"; btn.style.cursor = "pointer";
+      btn.innerText = "🔔 แจ้งเตือน";
+    }
+  }, 1000);
+}
+
+// ═══════════════════════════════════════════════════════
+//  CANCEL REQUEST
+// ═══════════════════════════════════════════════════════
+async function cancelRequest(ticketNo) {
+  if (!confirm('ยืนยันการยกเลิกคำขอ #' + ticketNo + ' ?')) return;
+  const btn = document.getElementById('btn-cancel');
+  if (btn) { btn.disabled = true; btn.textContent = 'กำลังยกเลิก...'; }
+  try {
+    const res  = await fetch('/api/cancel/' + ticketNo, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert('ยกเลิกเรียบร้อยแล้ว');
+      location.reload();
+    } else {
+      alert('ไม่สามารถยกเลิกได้: ' + (data.message || ''));
+      if (btn) { btn.disabled = false; btn.textContent = 'ยกเลิกคำขอ'; }
+    }
+  } catch(e) {
+    alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
+    if (btn) { btn.disabled = false; btn.textContent = 'ยกเลิกคำขอ'; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  SENDER NAME
+// ═══════════════════════════════════════════════════════
+function toggleSenderEdit() {
+  const area    = document.getElementById("sender-edit-area");
+  const saveBtn = document.getElementById("btn-sender-save");
+  const editBtn = document.getElementById("btn-sender-edit");
+  const isHidden = area.style.display === "none";
+  area.style.display = isHidden ? "block" : "none";
+  if (saveBtn) saveBtn.style.display = isHidden ? "inline-flex" : "none";
+  if (editBtn) editBtn.style.display = isHidden ? "none" : "inline-flex";
+}
+
+async function saveSenderName() {
+  const input   = document.getElementById("input-sender-name");
+  const msg     = document.getElementById("sender-msg");
+  const val     = (input?.value || "").trim();
+  if (!val) { if (msg) msg.textContent = "กรุณากรอกชื่อผู้ส่ง"; return; }
+  const saveBtn = document.getElementById("btn-sender-save");
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "กำลังบันทึก..."; }
+  try {
+    const res  = await fetch(`/api/update-sender/{{ item.request_id }}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sender_name: val })
+    });
+    const data = await res.json();
+    if (!data.ok) { if (msg) msg.textContent = data.message || "เกิดข้อผิดพลาด"; }
+    else { location.reload(); }
+  } catch(e) {
+    if (msg) msg.textContent = "เกิดข้อผิดพลาด";
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = "💾 บันทึกชื่อผู้ส่ง"; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  SUPPLIER NAME
+// ═══════════════════════════════════════════════════════
+function toggleSupplierEdit(show) {
+  const viewMode = document.getElementById('supplier-view-mode');
+  const editMode = document.getElementById('supplier-edit-mode');
+  viewMode.style.display = show ? 'none' : 'block';
+  editMode.style.display = show ? 'flex' : 'none';
+  if (show) document.getElementById('supplier-name-input').focus();
+}
+
+function saveSupplierName(ticketNo) {
+  const newName = document.getElementById('supplier-name-input').value.trim();
+  if (!newName) { alert('กรุณากรอกชื่อ Supplier'); return; }
+  fetch(`/api/update-sender/${ticketNo}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender_name: newName })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.ok) {
+      const supplierDisplayEl = document.querySelector('[data-supplier-display]');
+      if (supplierDisplayEl) supplierDisplayEl.textContent = newName;
+      toggleSupplierEdit(false);
+      location.reload();
+    } else {
+      alert('บันทึกไม่สำเร็จ: ' + (data.message || 'unknown error'));
+    }
+  })
+  .catch(err => {
+    alert('เกิดข้อผิดพลาด: ' + err);
+  });
+}
+
+// close modals on overlay click
+document.getElementById("confirm-modal")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeConfirmModal(); });
+document.getElementById("rpicker-modal")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeReceiverPicker(); });
+</script>
+{% endblock %}
