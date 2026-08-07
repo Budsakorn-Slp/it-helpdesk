@@ -363,6 +363,22 @@
          data-count="{{ item.resend_count or 0 }}"
          data-last="{{ item.last_resend_at.strftime('%Y-%m-%d %H:%M:%S') if item.last_resend_at else '' }}">
     </div>
+    {# ส่งต่อให้หัวหน้าจัดการเองในหน้ารวมเอกสาร — โผล่เฉพาะตอนที่รู้ว่าหัวหน้าคือใคร #}
+    {% if item.emp_approver %}
+    <div class="detail-row" style="margin-top:10px; border-top:1px solid #f3f4f6; padding-top:10px;">
+      <span class="dr-label">ส่งต่อให้หัวหน้า</span>
+      <span class="dr-val" style="text-align:right;">
+        <a id="btn-forward"
+           href="/api/approve-list?emp={{ item.emp_approver | urlencode }}"
+           style="display:inline-block; background:#ecfdf5; color:#047857;
+                  border:1px solid #6ee7b7; border-radius:8px; padding:8px 12px;
+                  font-size:.78rem; font-weight:600; text-decoration:none;">
+          ➜ ส่งต่อ
+        </a>
+      </span>
+    </div>
+    {% endif %}
+
     <div class="detail-row" style="margin-top:10px; border-top:1px solid #f3f4f6; padding-top:10px;">
       <span class="dr-label" style="color:#dc2626;">ยกเลิกคำขอ</span>
       <span class="dr-val" style="text-align:right;">
