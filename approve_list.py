@@ -71,27 +71,60 @@ ASSET_SQL_TMPL = """
     ORDER  BY TRANSFER_ID, ITEM_NO
 """
 
+# ใบที่ "เรา" ส่งต่อออกไปให้คนอื่น — ดูอย่างเดียว ไม่มีปุ่มกด
+# EMP_APPROVER ตอนนี้คือผู้รับมอบ จึง join SBP_EMPLOYEE เอาชื่อมาแสดง
+FORWARDED_SQL = """
+    SELECT A.REQUEST_ID,
+           A.STATUS                AS APV_STATUS,
+           R.REQUEST_CATEGORY,
+           R.REQUESTER_FNAME,
+           R.REQUESTER_LNAME,
+           R.REQUEST_DATE          AS REQ_DATE,
+           R.REQUEST_REMARK,
+           T.ID                    AS TRANSFER_ID,
+           T.TRANSFER_TYPE_NAME,
+           T.FROM_SITE, T.FROM_DIVISION, T.FROM_COSTCENTER, T.FROM_COST_CODE, T.FROM_LOCATION,
+           T.TO_SITE,   T.TO_DIVISION,   T.TO_COSTCENTER,   T.TO_COST_CODE,   T.TO_LOCATION,
+           A.EMP_APPROVER          AS FWD_TO_EMP,
+           E.NAME                  AS FWD_TO_NAME,
+           A.FORWARD_AT            AS FWD_AT
+    FROM IT_HELPDESK_APPROVER A
+    JOIN IT_HELPDESK_REQUEST  R ON R.REQUEST_ID = A.REQUEST_ID
+    LEFT JOIN IT_HELPDESK_TRANSFER T ON T.REQUEST_ID = R.REQUEST_ID
+    LEFT JOIN SBP_EMPLOYEE    E ON E.EMP_ID = A.EMP_APPROVER
+    WHERE A.FORWARD_FROM = :emp
+      AND A.EMP_APPROVER <> :emp
+    ORDER BY A.FORWARD_AT DESC
+"""
+
+
+def _attach_assets(cur, docs):
+    """ดึง asset ของทุกใบทีเดียวด้วย IN (...) แทนการยิงทีละใบ"""
+    tids = [d["transfer_id"] for d in docs if d.get("transfer_id")]
+    assets_by_tid = {}
+    if tids:
+        binds = {f"t{i}": v for i, v in enumerate(tids)}
+        sql = ASSET_SQL_TMPL.format(binds=",".join(f":{k}" for k in binds))
+        cur.execute(sql, binds)
+        for a in _rows(cur):
+            assets_by_tid.setdefault(a["transfer_id"], []).append(a)
+    for d in docs:
+        d["assets"] = assets_by_tid.get(d.get("transfer_id"), [])
+    return docs
+
 
 def _fetch(emp_id):
+    """เอกสารที่อยู่ในมือ emp_id ตอนนี้ + เอกสารที่ emp_id ส่งต่อออกไปแล้ว"""
     conn = _db_conn()
     try:
         cur = conn.cursor()
         cur.execute(MAIN_SQL, {"emp": emp_id})
-        docs = _rows(cur)
+        docs = _attach_assets(cur, _rows(cur))
 
-        # ดึง asset ทีเดียวด้วย IN (...)
-        tids = [d["transfer_id"] for d in docs if d.get("transfer_id")]
-        assets_by_tid = {}
-        if tids:
-            binds = {f"t{i}": v for i, v in enumerate(tids)}
-            sql = ASSET_SQL_TMPL.format(binds=",".join(f":{k}" for k in binds))
-            cur.execute(sql, binds)
-            for a in _rows(cur):
-                assets_by_tid.setdefault(a["transfer_id"], []).append(a)
+        cur.execute(FORWARDED_SQL, {"emp": emp_id})
+        fwd = _attach_assets(cur, _rows(cur))
 
-        for d in docs:
-            d["assets"] = assets_by_tid.get(d.get("transfer_id"), [])
-        return docs
+        return docs, fwd
     finally:
         conn.close()
 
@@ -246,11 +279,13 @@ def approve_list_forward():
                 continue
 
             # โอนสิทธิ์: ใบนี้จะย้ายไปอยู่คิวของ to_emp และหายจากคิวคนเดิม
+            # เก็บคนเดิมไว้ที่ FORWARD_FROM ไม่ใช่ USER_UPDATE เพราะช่องนั้น
+            # cancel_request() ใช้เก็บ "ใครกดยกเลิก" อยู่ ถ้าปนกันจะแยกไม่ออก
             cur.execute("""
                 UPDATE IT_HELPDESK_APPROVER
                 SET    EMP_APPROVER = :new,
-                       USER_UPDATE  = :old,
-                       DATE_UPDATE  = SYSDATE
+                       FORWARD_FROM = :old,
+                       FORWARD_AT   = SYSDATE
                 WHERE  REQUEST_ID = :id AND EMP_APPROVER = :old
             """, {"new": to_emp, "old": emp, "id": rid})
             ok.append(rid)
@@ -373,7 +408,15 @@ def _card(d, group):
         asset_html = ""
 
     # ปุ่ม / badge ตามกลุ่ม
-    if group == "waiting":
+    if group == "forwarded":
+        # แท็บดูอย่างเดียว — สิทธิ์ไม่ได้อยู่กับเราแล้ว จึงไม่มีปุ่มและ checkbox
+        actions = ""
+        check   = ""
+        st      = (d.get("apv_status") or "").strip()
+        chip    = ('<span class="chip ok">ผู้รับอนุมัติแล้ว</span>' if st in ("Approve", "Done")
+                   else '<span class="chip no">ผู้รับยกเลิกแล้ว</span>' if st == "Reject"
+                   else '<span class="chip wait">รอผู้รับกด</span>')
+    elif group == "waiting":
         actions = f"""
             <button class="btn fwd" onclick="askForward(['{rid}'])">ส่งต่อ</button>
             <button class="btn reject"  onclick="act('{rid}','Reject')">ยกเลิก</button>
@@ -389,6 +432,21 @@ def _card(d, group):
         check   = ""
         chip    = '<span class="chip no">ยกเลิกแล้ว</span>'
 
+    # แถบ "ส่งต่อให้ ..." โชว์เฉพาะแท็บส่งต่อ
+    fwd_to = ""
+    if group == "forwarded":
+        who = (d.get("fwd_to_name") or "").strip() or f"รหัส {d.get('fwd_to_emp') or '-'}"
+        when = d.get("fwd_at")
+        when_txt = f' · {when.strftime("%d/%m/%Y %H:%M")}' if when else ""
+        fwd_to = f"""
+      <div class="fwdto">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 12h14"/><path d="M13 7l5 5-5 5"/>
+        </svg>
+        <span>ส่งต่อให้ <b>{esc(who)}</b> ({esc(d.get('fwd_to_emp') or '-')}){esc(when_txt)}</span>
+      </div>"""
+
     expand_btn = ('<button class="more" onclick="tog(this)" aria-expanded="false">'
                   'ดูสินทรัพย์</button>') if asset_html else ""
     foot = (f'<div class="foot">{expand_btn}<span class="grow"></span>{actions}</div>'
@@ -396,7 +454,8 @@ def _card(d, group):
 
     # ข้อความที่ใช้ค้นหา — รวมทุกอย่างที่ผู้ใช้น่าจะพิมพ์หา
     search_bits = [str(rid), ttl, name, d.get("request_category") or "",
-                   d.get("request_remark") or "", str(d.get("req_date") or "")]
+                   d.get("request_remark") or "", str(d.get("req_date") or ""),
+                   d.get("fwd_to_name") or "", d.get("fwd_to_emp") or ""]
     if has_tf:
         search_bits += [
             _loc(d.get("from_site"), d.get("from_division"), d.get("from_costcenter"),
@@ -416,6 +475,7 @@ def _card(d, group):
         {chip}
       </div>
       <div class="ttl">{esc(ttl)}</div>
+      {fwd_to}
       <div class="body">{detail}</div>
       <div class="meta">
         <span>{esc(name)}</span><span class="dot">·</span><span>{esc(d.get('req_date') or '-')}</span>
@@ -434,21 +494,25 @@ def approve_list():
     if not emp:
         return "ต้องระบุ ?emp=<EMP_ID>", 400
 
-    docs = _fetch(emp)
+    docs, fwd = _fetch(emp)
     g = {"waiting": [], "approved": [], "rejected": []}
     for d in docs:
         key = _GROUP.get((d.get("apv_status") or "").strip())
         if key:
             g[key].append(d)
 
-    sec_wait = "".join(_card(d, "waiting")  for d in g["waiting"])  or '<div class="empty">— ไม่มี —</div>'
-    sec_appr = "".join(_card(d, "approved") for d in g["approved"]) or '<div class="empty">— ไม่มี —</div>'
-    sec_rej  = "".join(_card(d, "rejected") for d in g["rejected"]) or '<div class="empty">— ไม่มี —</div>'
+    empty = '<div class="empty">— ไม่มี —</div>'
+    sec_wait = "".join(_card(d, "waiting")   for d in g["waiting"])  or empty
+    sec_appr = "".join(_card(d, "approved")  for d in g["approved"]) or empty
+    sec_rej  = "".join(_card(d, "rejected")  for d in g["rejected"]) or empty
+    sec_fwd  = "".join(_card(d, "forwarded") for d in fwd) or \
+        '<div class="empty">ยังไม่ได้ส่งต่อเอกสารให้ใคร</div>'
 
     return PAGE.format(
         emp=emp,
-        n_wait=len(g["waiting"]), n_appr=len(g["approved"]), n_rej=len(g["rejected"]),
-        sec_wait=sec_wait, sec_appr=sec_appr, sec_rej=sec_rej,
+        n_wait=len(g["waiting"]), n_appr=len(g["approved"]),
+        n_rej=len(g["rejected"]), n_fwd=len(fwd),
+        sec_wait=sec_wait, sec_appr=sec_appr, sec_rej=sec_rej, sec_fwd=sec_fwd,
         emp_js=json.dumps(emp),
     )
 
@@ -574,6 +638,15 @@ PAGE = """<!DOCTYPE html>
   .remark {{ font-size:13.5px; white-space:pre-wrap; word-break:break-word; }}
   .meta {{ font-size:12.5px; color:var(--muted); padding:8px 15px 0; }}
   .meta .dot {{ margin:0 6px; }}
+
+  /* แถบ "ส่งต่อให้ ..." ในแท็บส่งต่อแล้ว */
+  .fwdto {{
+    display:flex; align-items:center; gap:7px; margin:8px 15px 0;
+    padding:7px 11px; border-radius:9px;
+    background:var(--brand-soft); color:var(--brand); font-size:13px;
+  }}
+  .fwdto svg {{ width:15px; height:15px; flex:0 0 auto; }}
+  .fwdto b {{ font-weight:600; }}
 
   .foot {{
     display:flex; align-items:center; gap:9px;
@@ -724,6 +797,7 @@ PAGE = """<!DOCTYPE html>
     <button class="tab on" onclick="tab(0,this)">รออนุมัติ <span class="c">{n_wait}</span></button>
     <button class="tab" onclick="tab(1,this)">อนุมัติแล้ว <span class="c">{n_appr}</span></button>
     <button class="tab" onclick="tab(2,this)">ยกเลิก <span class="c">{n_rej}</span></button>
+    <button class="tab" onclick="tab(3,this)">ส่งต่อแล้ว <span class="c">{n_fwd}</span></button>
   </div>
 </div>
 
@@ -753,6 +827,7 @@ PAGE = """<!DOCTYPE html>
   <div class="pane on" id="p0">{sec_wait}</div>
   <div class="pane" id="p1">{sec_appr}</div>
   <div class="pane" id="p2">{sec_rej}</div>
+  <div class="pane" id="p3">{sec_fwd}</div>
 </div>
 
 <div class="bulk" id="bulk">
@@ -788,6 +863,7 @@ function tab(i, el) {{
   el.classList.add('on');
   document.querySelectorAll('.pane').forEach(function (p, idx) {{ p.classList.toggle('on', idx === i); }});
   // แถบเลือกหลายรายการ + เลือกทั้งหมด มีเฉพาะแท็บรออนุมัติ
+  // แท็บ "ส่งต่อแล้ว" เป็นแท็บดูอย่างเดียว สิทธิ์ไม่ได้อยู่กับเราแล้ว
   document.getElementById('selall-row').style.display = (i === 0) ? 'flex' : 'none';
   if (i !== 0) document.getElementById('bulk').classList.remove('show');
   doSearch();
