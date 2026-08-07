@@ -252,8 +252,9 @@ _STATUS_TEXT = {
     "Done":    "IT ดำเนินการเสร็จสิ้น",
     "Reject":  "ยกเลิก",
 }
-# กันหน้าบวมถ้าคนอนุมัติมีเอกสารสะสมเยอะ
-_LIST_LIMIT = 100
+# หน้านี้เปิดใน LINE บนมือถือ — โชว์แค่พอเห็นภาพรวม ที่เหลือไปดูหน้ารวม
+_LIST_LIMIT   = 100   # ดึงมานับยอดรวมของแต่ละแท็บ
+_PREVIEW_ROWS = 3     # แต่แสดงจริงแค่ 3 รายการล่าสุดต่อแท็บ
 
 
 def get_approver_of(req_id):
@@ -331,13 +332,26 @@ def get_approver_docs(emp_approver):
 
 
 def _doc_rows_html(docs, group, current_req_id):
-    """สร้าง <li> ของแต่ละ tab — ถ้าไม่มีเอกสารให้ขึ้นข้อความแทนตารางว่าง"""
+    """การ์ดของแต่ละแท็บ — โชว์แค่ _PREVIEW_ROWS รายการล่าสุด"""
     rows = [d for d in docs if d["group"] == group]
     if not rows:
         return '<div class="empty">ไม่มีรายการ</div>'
 
+    total = len(rows)
+    # ใบที่เพิ่งกดต้องเห็นเสมอ ถึงจะไม่ใช่ 3 อันล่าสุดก็ตาม
+    shown = rows[:_PREVIEW_ROWS]
+    if not any(str(d["request_id"]) == str(current_req_id) for d in shown):
+        cur_doc = next((d for d in rows
+                        if str(d["request_id"]) == str(current_req_id)), None)
+        if cur_doc:
+            shown = [cur_doc] + shown[:_PREVIEW_ROWS - 1]
+
+    more = ""
+    if total > len(shown):
+        more = f'<div class="more-note">และอีก {total - len(shown)} รายการ</div>'
+
     out = []
-    for d in rows:
+    for d in shown:
         # ใบที่เพิ่งกดมาให้ไฮไลต์ไว้ จะได้รู้ว่าอันไหนคือใบที่เพิ่งทำ
         is_cur = str(d["request_id"]) == str(current_req_id)
         cls    = "doc cur" if is_cur else "doc"
@@ -356,7 +370,7 @@ def _doc_rows_html(docs, group, current_req_id):
             {company}
             <div class="m">ขอโดย: {_html.escape(d['requester'])} · {d['date']}</div>
           </div>""")
-    return "".join(out)
+    return "".join(out) + more
 
 
 def render_doc_list(req_id, emp_approver):
@@ -433,7 +447,8 @@ def render_result_page(req_id, status):
     <html lang="th">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        <meta name="theme-color" content="#5b5ef4">
         <!-- Google Font -->
         <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
         <title>IT Helpdesk</title>
@@ -548,10 +563,26 @@ def render_result_page(req_id, status):
                 text-align: center; color: #aaa;
                 font-size: 13px; padding: 18px 0;
             }}
+            .more-note {{
+                text-align: center; color: #9aa0b8; font-size: 12.5px;
+                padding: 4px 0 10px;
+            }}
             .go-list {{
                 display: block; text-align: center; text-decoration: none;
-                margin-top: 4px; padding: 11px; border-radius: 10px;
-                background: #5b5ef4; color: #fff; font-size: 14px; font-weight: 600;
+                margin-top: 8px; padding: 0; line-height: 48px; min-height: 48px;
+                border-radius: 12px; background: #5b5ef4; color: #fff;
+                font-size: 15px; font-weight: 600;
+            }}
+
+            /* มือถือ: ลดขอบ ขยายตัวอักษร ปุ่มแตะง่าย */
+            @media (max-width: 480px) {{
+                body {{ padding: 14px 12px calc(18px + env(safe-area-inset-bottom)); }}
+                .header {{ font-size: 19px; padding: 17px; border-radius: 13px; }}
+                .card {{ padding: 16px; border-radius: 13px; }}
+                .list-card {{ padding: 14px; }}
+                .tab {{ min-height: 42px; font-size: 13px; }}
+                .doc {{ padding: 12px 13px; }}
+                .doc .t {{ font-size: 14.5px; }}
             }}
         </style>
     </head>
