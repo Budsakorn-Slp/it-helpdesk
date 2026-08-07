@@ -1,3 +1,4 @@
+import html as _html
 import os
 from flask import Blueprint, request, jsonify
 import urllib.request
@@ -233,6 +234,167 @@ def get_request_detail(req_id):
     conn.close()
     return data
 
+# ─────────────────────────────
+# รายการเอกสารทั้งหมดของผู้อนุมัติคนนี้
+# ─────────────────────────────
+# Waiting            → รออนุมัติ
+# Approve / Done     → อนุมัติแล้ว
+# Reject             → ยกเลิก
+_STATUS_GROUP = {
+    "Waiting": "waiting",
+    "Approve": "approved",
+    "Done":    "approved",
+    "Reject":  "rejected",
+}
+_STATUS_TEXT = {
+    "Waiting": "รออนุมัติ",
+    "Approve": "อนุมัติแล้ว",
+    "Done":    "IT ดำเนินการเสร็จสิ้น",
+    "Reject":  "ยกเลิก",
+}
+# กันหน้าบวมถ้าคนอนุมัติมีเอกสารสะสมเยอะ
+_LIST_LIMIT = 100
+
+
+def get_approver_of(req_id):
+    """หา EMP_APPROVER ของใบนี้ — หน้า /api/approve มีแต่ ref ไม่มีรหัสผู้อนุมัติ"""
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT EMP_APPROVER FROM IT_HELPDESK_APPROVER
+            WHERE REQUEST_ID = :rid
+        """, {"rid": req_id})
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+    except Exception as e:
+        print("[GET APPROVER ERROR]", e)
+        return None
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+def get_approver_docs(emp_approver):
+    """ดึงเอกสารทั้งหมดที่ส่งมาให้ emp_approver คนนี้ พร้อมสถานะ"""
+    if not emp_approver:
+        return []
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM (
+                SELECT A.REQUEST_ID,
+                       A.STATUS,
+                       A.DATE_CREATE,
+                       A.DATE_UPDATE,
+                       R.REQUEST_CATEGORY,
+                       R.REQUESTER_FNAME,
+                       R.REQUESTER_LNAME,
+                       T.TRANSFER_TYPE_NAME,
+                       T.COMPANY_NAME
+                FROM IT_HELPDESK_APPROVER A
+                JOIN IT_HELPDESK_REQUEST  R ON R.REQUEST_ID = A.REQUEST_ID
+                LEFT JOIN IT_HELPDESK_TRANSFER T ON T.REQUEST_ID = A.REQUEST_ID
+                WHERE A.EMP_APPROVER = :emp
+                ORDER BY A.DATE_CREATE DESC
+            ) WHERE ROWNUM <= :lim
+        """, {"emp": emp_approver, "lim": _LIST_LIMIT})
+
+        docs = []
+        for row in cur.fetchall():
+            vals = [v.read() if hasattr(v, "read") else v for v in row]
+            (rid, st, created, updated, cat, fname, lname, ttype, company) = vals
+            st = (st or "").strip()
+            docs.append({
+                "request_id": rid,
+                "status":     st,
+                "group":      _STATUS_GROUP.get(st, "waiting"),
+                "status_text": _STATUS_TEXT.get(st, st or "-"),
+                "date":       created.strftime("%d/%m/%Y %H:%M") if created else "-",
+                "updated":    updated.strftime("%d/%m/%Y %H:%M") if updated else "",
+                "title":      ttype or cat or "-",
+                "requester":  f"{fname or ''} {lname or ''}".strip() or "-",
+                "company":    company or "",
+            })
+        return docs
+    except Exception as e:
+        print("[GET APPROVER DOCS ERROR]", e)
+        return []
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+def _doc_rows_html(docs, group, current_req_id):
+    """สร้าง <li> ของแต่ละ tab — ถ้าไม่มีเอกสารให้ขึ้นข้อความแทนตารางว่าง"""
+    rows = [d for d in docs if d["group"] == group]
+    if not rows:
+        return '<div class="empty">ไม่มีรายการ</div>'
+
+    out = []
+    for d in rows:
+        # ใบที่เพิ่งกดมาให้ไฮไลต์ไว้ จะได้รู้ว่าอันไหนคือใบที่เพิ่งทำ
+        is_cur = str(d["request_id"]) == str(current_req_id)
+        cls    = "doc cur" if is_cur else "doc"
+        badge  = f'<span class="b {d["group"]}">{_html.escape(d["status_text"])}</span>'
+        cur_tag = '<span class="now">ใบนี้</span>' if is_cur else ""
+        company = (f'<div class="c">{_html.escape(d["company"])}</div>'
+                   if d["company"] else "")
+        # เป็น div ไม่ใช่ลิงก์ — /api/approve?ref= สั่งอนุมัติทันทีที่เปิด
+        # ถ้าทำแถวเป็นลิงก์ไปหน้านั้น เผลอแตะก็อนุมัติไปแล้ว
+        out.append(f"""
+          <div class="{cls}">
+            <div class="r1">
+              <span class="no">#{d['request_id']}</span>{cur_tag}{badge}
+            </div>
+            <div class="t">{_html.escape(d['title'])}</div>
+            {company}
+            <div class="m">ขอโดย: {_html.escape(d['requester'])} · {d['date']}</div>
+          </div>""")
+    return "".join(out)
+
+
+def render_doc_list(req_id, emp_approver):
+    """ส่วน 'เอกสารของฉัน' ที่แปะไว้ใต้ผลอนุมัติ — แท็บ รออนุมัติ/อนุมัติแล้ว/ยกเลิก"""
+    docs = get_approver_docs(emp_approver)
+    if not docs:
+        return ""
+
+    n_wait = sum(1 for d in docs if d["group"] == "waiting")
+    n_appr = sum(1 for d in docs if d["group"] == "approved")
+    n_rej  = sum(1 for d in docs if d["group"] == "rejected")
+
+    return f"""
+        <div class="card list-card">
+          <div class="list-title">เอกสารของฉัน</div>
+          <div class="tabs">
+            <button class="tab active" onclick="showTab(event,'waiting')">รออนุมัติ <i>{n_wait}</i></button>
+            <button class="tab" onclick="showTab(event,'approved')">อนุมัติแล้ว <i>{n_appr}</i></button>
+            <button class="tab" onclick="showTab(event,'rejected')">ยกเลิก <i>{n_rej}</i></button>
+          </div>
+          <div class="pane" id="pane-waiting">{_doc_rows_html(docs, 'waiting', req_id)}</div>
+          <div class="pane" id="pane-approved" style="display:none">{_doc_rows_html(docs, 'approved', req_id)}</div>
+          <div class="pane" id="pane-rejected" style="display:none">{_doc_rows_html(docs, 'rejected', req_id)}</div>
+          <a class="go-list" href="/api/approve-list?emp={_html.escape(str(emp_approver))}">
+            เปิดหน้ารวมเพื่อกดอนุมัติ
+          </a>
+        </div>
+        <script>
+          function showTab(e, name) {{
+            ['waiting','approved','rejected'].forEach(function (n) {{
+              document.getElementById('pane-' + n).style.display = (n === name) ? 'block' : 'none';
+            }});
+            document.querySelectorAll('.tab').forEach(function (t) {{ t.classList.remove('active'); }});
+            e.currentTarget.classList.add('active');
+          }}
+        </script>"""
+
+
 def render_result_page(req_id, status):
     detail = get_request_detail(req_id)
     if not detail:
@@ -258,6 +420,13 @@ def render_result_page(req_id, status):
         done_box = """
         <div class="status done">IT ดำเนินการเสร็จสิ้น</div>
         """
+
+    # รายการเอกสารทั้งหมดของผู้อนุมัติคนนี้ — ล้มแล้วต้องไม่ทำให้หน้าผลอนุมัติพัง
+    try:
+        doc_list = render_doc_list(req_id, get_approver_of(req_id))
+    except Exception as e:
+        print("[DOC LIST ERROR]", e)
+        doc_list = ""
 
     html = f"""
     <!DOCTYPE html>
@@ -338,6 +507,52 @@ def render_result_page(req_id, status):
                 background: #e8f0ff;
                 color: #1e40af;
             }}
+
+            /* ── เอกสารของฉัน ── */
+            .list-card {{ padding: 16px; }}
+            .list-title {{
+                font-weight: 600; font-size: 16px;
+                color: #5b5ef4; margin-bottom: 12px;
+            }}
+            .tabs {{ display: flex; gap: 6px; margin-bottom: 12px; }}
+            .tab {{
+                flex: 1; padding: 8px 4px; font-family: inherit; font-size: 13px;
+                border: 1px solid #e3e6f0; background: #fff; color: #666;
+                border-radius: 9px; cursor: pointer;
+            }}
+            .tab.active {{ background: #5b5ef4; border-color: #5b5ef4; color: #fff; }}
+            .tab i {{ font-style: normal; opacity: .75; }}
+            .doc {{
+                display: block; text-decoration: none; color: inherit;
+                border: 1px solid #eceef5; border-radius: 11px;
+                padding: 11px 13px; margin-bottom: 9px;
+            }}
+            .doc.cur {{ border-color: #5b5ef4; background: #f7f7ff; }}
+            .doc .r1 {{ display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }}
+            .doc .no {{ font-weight: 600; font-size: 14px; }}
+            .doc .now {{
+                font-size: 11px; background: #5b5ef4; color: #fff;
+                padding: 1px 7px; border-radius: 20px;
+            }}
+            .doc .b {{
+                margin-left: auto; font-size: 11px;
+                padding: 2px 9px; border-radius: 20px;
+            }}
+            .doc .b.waiting  {{ background: #fff4e0; color: #b26a00; }}
+            .doc .b.approved {{ background: #e7f7ec; color: #1e7a3c; }}
+            .doc .b.rejected {{ background: #fdeaea; color: #c62828; }}
+            .doc .t {{ font-size: 14px; color: #333; }}
+            .doc .c {{ font-size: 12px; color: #5b5ef4; margin-top: 2px; }}
+            .doc .m {{ font-size: 12px; color: #999; margin-top: 4px; }}
+            .empty {{
+                text-align: center; color: #aaa;
+                font-size: 13px; padding: 18px 0;
+            }}
+            .go-list {{
+                display: block; text-align: center; text-decoration: none;
+                margin-top: 4px; padding: 11px; border-radius: 10px;
+                background: #5b5ef4; color: #fff; font-size: 14px; font-weight: 600;
+            }}
         </style>
     </head>
     <body>
@@ -360,6 +575,7 @@ def render_result_page(req_id, status):
                 {reject_box}
                 {done_box}
             </div>
+            {doc_list}
         </div>
     </body>
     </html>
