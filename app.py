@@ -4,6 +4,7 @@ import logging
 import sys
 import urllib.request
 import urllib.error
+import urllib.parse
 from logging.handlers import RotatingFileHandler
 
 # โค้ดนี้ print ภาษาไทยเยอะมาก ถ้า console เข้ารหัสไม่ได้ (เช่น cp874 บน Windows
@@ -395,7 +396,17 @@ def do_insert(data):
 #  LINE FLEX MESSAGE
 # ══════════════════════════════════════════════════════════════
 def send_line_flex(to_line_id: str, req_id: str, data: dict,
-                   notify_type: str = "APPROVER", to_emp: str = "") -> bool:
+                   notify_type: str = "APPROVER", to_emp: str = "",
+                   list_emp: str = "") -> bool:
+    """ส่ง flex ให้ผู้อนุมัติ
+
+    to_emp   = คนที่ได้รับข้อความจริง (ตอน dev ถูกเบนเป็น DEV_NOTIFY_EMP_ID)
+               ใช้สำหรับ notify.log
+    list_emp = เจ้าของคิวเอกสารตัวจริง ใช้ทำลิงก์ปุ่ม "ส่งต่อ"
+               แยกจาก to_emp เพราะตอน dev คนรับข้อความไม่ใช่ผู้อนุมัติจริง
+               ถ้าใช้ to_emp ปุ่มจะเปิดคิวเปล่า
+    """
+    list_emp = list_emp or to_emp
     if not LINE_TOKEN:
         print("[LINE] LINE_CHANNEL_TOKEN ไม่ได้ตั้งค่า — ข้ามการส่ง")
         log_notify(req_id, notify_type, to_emp, to_line_id, "SKIP", error_msg="ไม่ได้ตั้ง LINE_CHANNEL_TOKEN")
@@ -478,7 +489,17 @@ def send_line_flex(to_line_id: str, req_id: str, data: dict,
                             {
                                 "type": "button", "style": "primary", "color": "#aaa5a5", "height": "sm",
                                 "action": {"type": "uri", "label": "Reject ไม่อนุมัติ", "uri": f"{base}/api/reject?ref={req_id}"}
-                            }
+                            },
+                            # เปิดหน้ารวมเอกสารของหัวหน้าคนนี้ — จัดการหลายใบรวดเดียวได้
+                            # ไม่ต้องไล่กดทีละข้อความใน LINE
+                            *([{
+                                "type": "button", "style": "link", "height": "sm",
+                                "action": {
+                                    "type": "uri",
+                                    "label": "ส่งต่อ ดูเอกสารทั้งหมด",
+                                    "uri": f"{base}/api/approve-list?emp={urllib.parse.quote(str(list_emp))}"
+                                }
+                            }] if list_emp else [])
                         ]
                     }
                 }
@@ -1189,11 +1210,14 @@ def submit(cat_id):
     #  SEND LINE (หลัง commit เท่านั้น)
     # ══════════════════════════════════════════════════════════
     if not skip_approval:
-        approver_line_id, approver_emp = notify_target(emp.get("approver", ""))
+        real_approver = emp.get("approver", "")
+        approver_line_id, approver_emp = notify_target(real_approver)
 
         if approver_line_id:
+            # list_emp = หัวหน้าตัวจริงเสมอ ปุ่ม "ส่งต่อ" จะได้เปิดคิวที่มีเอกสารอยู่จริง
             send_line_flex(approver_line_id, str(request_id), data,
-                           notify_type="APPROVER", to_emp=approver_emp)
+                           notify_type="APPROVER", to_emp=approver_emp,
+                           list_emp=real_approver)
         else:
             print("[LINE] ไม่มี LINE_ID ของ approver — ข้ามการส่ง")
             log_notify(request_id, "APPROVER", approver_emp, "",
@@ -1794,7 +1818,8 @@ def resend_approver(ticket_no):
             str(request_id),
             data,
             notify_type="RESEND",
-            to_emp=approver_emp
+            to_emp=approver_emp,
+            list_emp=emp_approver      # หัวหน้าตัวจริงที่ดึงมาจาก DB
         )
 
         if not ok:
