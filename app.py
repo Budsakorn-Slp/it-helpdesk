@@ -86,6 +86,34 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
 
 # ══════════════════════════════════════════════════════════════
+#  บริษัท (ใช้ในฟอร์มโอนย้าย form4)
+# ══════════════════════════════════════════════════════════════
+# เก็บไว้ที่เดียวแล้วส่งเข้า template — เดิม hard-code ไว้ใน HTML ทำให้เสี่ยง
+# ชื่อเพี้ยนระหว่าง HTML / JS / Python (ค่าที่เก็บลง DB คือ string ตรง ๆ)
+COMPANY_GROUP_LABEL = "บริษัท SBDS และบริษัทในเครือ"
+COMPANIES = [
+    "บริษัทเอส.บี.อุตสาหรกรรมเครื่องเรือน จำกัด",
+    "บริษัท สักทองไทย จำกัด",
+    "บริษัท เอส.บี.เฟอร์นิเจอร์เฮ้าส์ จำกัด",
+    "บริษัท โปรเทรนนิ่ง จำกัด",
+    COMPANY_GROUP_LABEL,   # ← ตัวครอบคลุมทั้งเครือ เลือกแล้วต้องกรอกชื่อบริษัทจริง
+]
+
+
+def resolve_company_name(form) -> str:
+    """แปลงตัวเลือกบริษัทเป็นค่าที่จะเก็บลง IT_HELPDESK_TRANSFER.COMPANY_NAME
+
+    ถ้าเลือก "และบริษัทในเครือ" จะเก็บ*ชื่อบริษัทจริงที่กรอก* แทน label กลาง
+    เพราะค่านี้ถูกพิมพ์เป็นหัวกระดาษของใบโอนย้าย (pdf_transfer.html)
+    จึงต้องเป็นชื่อนิติบุคคลที่ถูกต้อง ไม่ใช่ชื่อกลุ่ม
+    """
+    company = (form.get("company") or "").strip()
+    other   = (form.get("company_other") or "").strip()
+    if company == COMPANY_GROUP_LABEL and other:
+        return other
+    return company
+
+# ══════════════════════════════════════════════════════════════
 #  ORACLE
 # ══════════════════════════════════════════════════════════════
 def get_conn():
@@ -639,7 +667,9 @@ def form(cat_id):
 
     # ฟอร์ม 4 เบิกยืมโอนย้าย
     if cat_id == 4:
-        return render_template("form4.html", cat=cat, cat_id=cat_id)
+        return render_template("form4.html", cat=cat, cat_id=cat_id,
+                               companies=COMPANIES,
+                               company_group=COMPANY_GROUP_LABEL)
 
     # default ฟอร์มอื่น
     return render_template("form_generic.html", cat=cat, cat_id=cat_id)
@@ -931,7 +961,7 @@ def submit(cat_id):
         transfer_data = {
             "transfer_type":      transfer_sub,
             "transfer_type_name": typeproblem_name,
-            "company_name":       request.form.get("company", ""),
+            "company_name":       resolve_company_name(request.form),
             "from_dept":          from_dept,
             "from_site":          from_site,
             "from_division":      from_div,

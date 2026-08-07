@@ -350,14 +350,23 @@ breadcrumb %}
             </label>
           </div>
 
-          <!-- บริษัท-->
+          <!-- บริษัท — รายชื่อมาจาก COMPANIES ใน app.py (แหล่งเดียว) -->
           <div class="f-sec">บริษัท</div>
           <div class="f-1col">
-          <label><input type="radio" name="company" value="บริษัทเอส.บี.อุตสาหรกรรมเครื่องเรือน จำกัด"> บริษัทเอส.บี.อุตสาหรกรรมเครื่องเรือน จำกัด</label>
-          <label><input type="radio" name="company" value="บริษัท สักทองไทย จำกัด"> บริษัท สักทองไทย จำกัด</label>
-          <label><input type="radio" name="company" value="บริษัท เอส.บี.เฟอร์นิเจอร์เฮ้าส์ จำกัด"> บริษัท เอส.บี.เฟอร์นิเจอร์เฮ้าส์ จำกัด</label>
-          <label><input type="radio" name="company" value="บริษัท โปรเทรนนิ่ง จำกัด"> บริษัท โปรเทรนนิ่ง จำกัด</label>
-          <label><input type="radio" name="company" value="บริษัท SBDS และบริษัทในเครือ"> บริษัท SBDS และบริษัทในเครือ</label>
+          {% for c in companies %}
+          <label><input type="radio" name="company" value="{{ c }}" onchange="switchCompany()"> {{ c }}</label>
+          {% endfor %}
+          </div>
+
+          <!-- ระบุบริษัทในเครือ — โผล่เฉพาะตอนเลือกตัวเลือกครอบคลุมทั้งเครือ -->
+          <div class="f-1col" id="company-other-box" style="display: none">
+            <label for="company-other">ระบุชื่อบริษัท <span class="req">*</span></label>
+            <input
+              type="text"
+              name="company_other"
+              id="company-other"
+              placeholder="ชื่อบริษัทในเครือที่จะพิมพ์บนใบโอนย้าย"
+            />
           </div>
 
           <!-- ──────────────────────────────────
@@ -726,6 +735,14 @@ breadcrumb %}
         return false;
       }
 
+      if (company === COMPANY_GROUP &&
+          !document.getElementById("company-other").value.trim()) {
+        alert("กรุณาระบุชื่อบริษัทในเครือ");
+        document.getElementById("company-other").focus();
+        e.preventDefault();
+        return false;
+      }
+
       if (!subType) {
         alert("กรุณาเลือกประเภทเอกสาร");
         e.preventDefault();
@@ -1015,6 +1032,23 @@ breadcrumb %}
   document.getElementById("section-transfer-sale").style.display =
     val === "SALE" ? "block" : "none";
   console.log("[switchTransferSubType] =", val);
+  }
+
+  /* ─────────────────────────────────────────
+     บริษัท: เลือก "และบริษัทในเครือ" → ต้องระบุชื่อบริษัทจริง
+     ค่า label มาจาก app.py ตัวเดียว กันชื่อเพี้ยนระหว่าง JS กับ Python
+  ───────────────────────────────────────── */
+  const COMPANY_GROUP = {{ company_group | tojson }};
+
+  function switchCompany() {
+    const val  = document.querySelector('input[name="company"]:checked')?.value;
+    const box  = document.getElementById("company-other-box");
+    const text = document.getElementById("company-other");
+    const show = val === COMPANY_GROUP;
+
+    box.style.display = show ? "block" : "none";
+    // เคลียร์ทิ้งเมื่อสลับไปบริษัทอื่น ไม่งั้นค่าค้างจะถูกส่งไปด้วย
+    if (!show) text.value = "";
   }
 
   function showConfirm() {
