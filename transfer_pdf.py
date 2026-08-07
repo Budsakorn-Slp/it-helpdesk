@@ -1,7 +1,6 @@
 import io
 import os
 
-import cx_Oracle
 
 import config
 
@@ -63,7 +62,7 @@ transfer_pdf_bp = Blueprint(
 #  DB CONNECTION
 # ══════════════════════════════════════════════════════════════
 def getconn():
-    return cx_Oracle.connect(**config.oracle_credentials())
+    return config.connect()
 
 
 # ══════════════════════════════════════════════════════════════

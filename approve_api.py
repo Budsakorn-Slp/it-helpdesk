@@ -1,5 +1,4 @@
 import os
-import cx_Oracle
 from flask import Blueprint, request, jsonify
 import urllib.request
 import json
@@ -132,7 +131,7 @@ def check_transfer_complete(req_id):
 # Oracle Connection
 # ─────────────────────────────
 def get_conn():
-    return cx_Oracle.connect(**config.oracle_credentials())
+    return config.connect()
 
 # ─────────────────────────────
 # UPDATE FUNCTION
@@ -191,7 +190,7 @@ def update_status(req_id: str, status: str):
         print(f"[DB] updating → {status}")
         conn.commit()
         return "OK"
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         print("[ERROR]", e)
         if conn:
             conn.rollback()

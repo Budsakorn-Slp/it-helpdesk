@@ -5,7 +5,6 @@
 
 import os
 import json
-import cx_Oracle
 from flask import Blueprint, request, jsonify
 
 import config
@@ -13,11 +12,10 @@ import config
 approve_list_bp = Blueprint("approve_list_bp", __name__)
 
 # ── Oracle Instant Client (guard กันชนกับ blueprint อื่น) ──
-config.init_oracle_client(cx_Oracle)
 
 
 def _db_conn():
-    return cx_Oracle.connect(**config.oracle_credentials())
+    return config.connect()
 
 
 def _rows(cur):
@@ -136,7 +134,7 @@ def approve_list_action():
             """, {"ms": main_status, "id": rid})
             ok.append(rid)
         conn.commit()
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         conn.rollback()
         return jsonify({"ok": [], "skip": ids, "error": str(e)}), 500
     finally:

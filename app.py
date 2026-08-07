@@ -1,9 +1,11 @@
 import os
 import json
+import logging
 import urllib.request
 import urllib.error
+from logging.handlers import RotatingFileHandler
+
 import config
-import cx_Oracle
 
 from flask import (Flask, render_template, request, redirect, url_for, jsonify, session)
 from datetime import datetime, timedelta
@@ -14,14 +16,16 @@ from approve_api import (
 )
 from transfer_pdf import transfer_pdf_bp
 from flask import jsonify
-from approve_list import approve_list_bp 
+from approve_list import approve_list_bp
 
 app = Flask(__name__)
 app.register_blueprint(approve_bp)
 app.register_blueprint(transfer_pdf_bp)
 app.register_blueprint(approve_list_bp)
 
-config.init_oracle_client(cx_Oracle)
+# เลือก Oracle driver ตั้งแต่ตอน start — ถ้าเครื่องนี้ไม่มี client ที่ใช้ได้
+# จะได้รู้ทันทีแทนที่จะไปพังตอน request แรก
+config.get_driver()
 
 # ไม่มี default แบบ hard-code — secret ที่ทุกคนอ่านได้จาก source เท่ากับไม่มี secret
 # ถ้าไม่ตั้ง SECRET_KEY จะสุ่มให้ (session หายเมื่อ restart แต่ปลอมไม่ได้)
@@ -29,16 +33,47 @@ app.secret_key = config.SECRET_KEY or os.urandom(32)
 if not config.SECRET_KEY:
     print("[APP] ไม่ได้ตั้ง SECRET_KEY — สุ่มให้ชั่วคราว, session จะหลุดทุกครั้งที่ restart")
 
-# cookie ต้องเป็น SameSite=None; Secure เมื่อรันหลัง HTTPS (LIFE เปิดใน webview ข้าม site)
-# ตั้ง SESSION_COOKIE_SECURE=true ใน .env ตอน deploy จริง
-_cookie_secure = (os.getenv("SESSION_COOKIE_SECURE") or "").strip().lower() in ("1", "true", "yes", "on")
-app.config["SESSION_COOKIE_SAMESITE"] = "None" if _cookie_secure else "Lax"
-app.config["SESSION_COOKIE_SECURE"]   = _cookie_secure
+# cookie ต้องเป็น SameSite=None; Secure เมื่อรันหลัง HTTPS (LIFF เปิดใน webview ข้าม site)
+# ตั้ง SESSION_COOKIE_SECURE=true ใน .env ตอน deploy จริง (APP_ENV=prod ตั้งให้อัตโนมัติ)
+app.config["SESSION_COOKIE_SAMESITE"] = "None" if config.SESSION_COOKIE_SECURE else "Lax"
+app.config["SESSION_COOKIE_SECURE"]   = config.SESSION_COOKIE_SECURE
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+
+print(f"[APP] APP_ENV={config.APP_ENV}  base_url={config.APP_BASE_URL}")
+if not config.IS_PROD:
+    print(f"[APP] โหมด dev — การแจ้งเตือน LINE ทั้งหมดจะวิ่งไปหา {config.DEV_NOTIFY_EMP_ID} เท่านั้น")
 
 # ── LINE ────────────────────────────────────────────────────────
 LINE_TOKEN   = config.LINE_TOKEN
 APP_BASE_URL = config.APP_BASE_URL
+
+# ══════════════════════════════════════════════════════════════
+#  NOTIFY LOG — เขียนผลการส่ง LINE ลงไฟล์ notify.log
+# ══════════════════════════════════════════════════════════════
+notify_logger = logging.getLogger("notify")
+notify_logger.setLevel(logging.INFO)
+if config.NOTIFY_LOG and not notify_logger.handlers:
+    _notify_handler = RotatingFileHandler(
+        os.path.join(os.path.dirname(__file__), "notify.log"),
+        maxBytes=5 * 1024 * 1024,   # 5 MB ต่อไฟล์
+        backupCount=5,              # เก็บย้อนหลัง 5 ไฟล์
+        encoding="utf-8"
+    )
+    _notify_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
+    notify_logger.addHandler(_notify_handler)
+
+
+def log_notify(request_id, notify_type, to_emp, to_line, status, http_code="", error_msg=""):
+    """บันทึกผลการส่ง LINE ลง notify.log — ห้าม raise เด็ดขาด เพื่อไม่กระทบ flow หลัก"""
+    if not config.NOTIFY_LOG:
+        return
+    try:
+        notify_logger.info(
+            f"req={request_id} | type={notify_type} | emp={to_emp or '-'} | "
+            f"line={to_line or '-'} | status={status} | http={http_code or '-'} | {error_msg or '-'}"
+        )
+    except Exception as e:
+        print(f"[NOTIFY LOG ERROR] {e}")
 
 # ── Upload ──────────────────────────────────────────────────────
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
@@ -54,7 +89,7 @@ def allowed_file(filename):
 #  ORACLE
 # ══════════════════════════════════════════════════════════════
 def get_conn():
-    return cx_Oracle.connect(**config.oracle_credentials())
+    return config.connect()
 
 # ══════════════════════════════════════════════════════════════
 #  EMPLOYEE LOOKUP
@@ -84,7 +119,7 @@ def get_employee_by_line_id(line_id):
             cols = [d[0].lower() for d in cur.description]
             return dict(zip(cols, [v.read() or "" if hasattr(v, "read") else v for v in row]))
         return None
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         print(f"[ORACLE ERROR] get_employee: {e}")
         return None
     finally:
@@ -106,7 +141,7 @@ def get_approver_line_id(approver_emp_id):
         )
         row = cur.fetchone()
         return row[0] if row and row[0] else None
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         print(f"[ORACLE ERROR] get_approver_line_id: {e}")
         return None
     finally:
@@ -147,6 +182,20 @@ def get_employee_line(emp_code):
                 conn.close()
             except:
                 pass
+
+
+def notify_target(emp_id):
+    """คืน (line_id, emp_id) ของปลายทางที่จะส่ง LINE จริง
+
+    prod → ส่งให้คนตามที่ระบุ
+    dev  → เบนไปหา DEV_NOTIFY_EMP_ID ทั้งหมด จะได้ไม่ไปรบกวนคนจริงตอนเทส
+           (เดิมใช้วิธี hard-code LINE ID ไว้ในโค้ดแล้ว comment สลับ ซึ่งเสี่ยง
+            หลุดขึ้น prod — ตอนนี้คุมด้วย APP_ENV ใน .env แทน)
+    """
+    target_emp = config.notify_emp_id(emp_id)
+    if not config.IS_PROD and config.DEV_NOTIFY_LINE_ID:
+        return config.DEV_NOTIFY_LINE_ID, target_emp
+    return get_approver_line_id(target_emp), target_emp
 
 
 def split_name(full_name):
@@ -198,7 +247,7 @@ def get_categories():
                 entry["external_url"] = url
             cats[int(cat_id)] = entry
         return cats
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         print(f"[ORACLE ERROR] get_categories: {e}")
         return {}
     finally:
@@ -291,7 +340,7 @@ def do_insert(data):
         print(f"[INSERT OK] request_id={req_id}  approver={emp_approver}")
         return req_id
 
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         print(f"[ORACLE INSERT ERROR] {e}")
         if conn:
             try: conn.rollback()
@@ -305,12 +354,15 @@ def do_insert(data):
 # ══════════════════════════════════════════════════════════════
 #  LINE FLEX MESSAGE
 # ══════════════════════════════════════════════════════════════
-def send_line_flex(to_line_id: str, req_id: str, data: dict) -> bool:
+def send_line_flex(to_line_id: str, req_id: str, data: dict,
+                   notify_type: str = "APPROVER", to_emp: str = "") -> bool:
     if not LINE_TOKEN:
         print("[LINE] LINE_CHANNEL_TOKEN ไม่ได้ตั้งค่า — ข้ามการส่ง")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "SKIP", error_msg="ไม่ได้ตั้ง LINE_CHANNEL_TOKEN")
         return False
     if not to_line_id:
         print("[LINE] ไม่มี LINE ID ของ approver — ข้ามการส่ง")
+        log_notify(req_id, notify_type, to_emp, "", "SKIP", error_msg="ไม่มี LINE_ID ของผู้รับ")
         return False
 
     base     = APP_BASE_URL
@@ -408,13 +460,16 @@ def send_line_flex(to_line_id: str, req_id: str, data: dict) -> bool:
         with urllib.request.urlopen(req, timeout=10) as resp:
             status = resp.status
         print(f"[LINE PUSH OK] request_id={req_id}  to={to_line_id}  http={status}")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "OK", http_code=status)
         return True
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         print(f"[LINE PUSH ERROR] http={e.code}  body={body}")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", http_code=e.code, error_msg=body)
         return False
     except Exception as e:
         print(f"[LINE PUSH ERROR] {e}")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", error_msg=str(e))
         return False
     
 
@@ -422,10 +477,15 @@ def send_manager_flex(
     to_line_id: str,
     req_id: str,
     data: dict,
-    action: str = "manager"
+    action: str = "manager",
+    to_emp: str = ""
 ) -> bool:
 
+    # map ประเภท noti จาก action เพื่อให้ notify.log อ่านรู้เรื่อง
+    notify_type = "RECEIVER" if action == "receiver" else "MANAGER"
+
     if not LINE_TOKEN:
+        log_notify(req_id, notify_type, to_emp, to_line_id, "SKIP", error_msg="ไม่ได้ตั้ง LINE_CHANNEL_TOKEN")
         return False
 
     base = APP_BASE_URL
@@ -539,18 +599,22 @@ def send_manager_flex(
                 f"to={to_line_id} "
                 f"http={res.status}"
             )
+            log_notify(req_id, notify_type, to_emp, to_line_id, "OK", http_code=res.status)
             return True
     except urllib.error.HTTPError as e:
+        body = e.read().decode()
         print(
             "[LINE PUSH ERROR]",
-            e.read().decode()
+            body
         )
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", http_code=e.code, error_msg=body)
         return False
     except Exception as e:
         print(
             "[LINE PUSH EXCEPTION]",
             e
         )
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", error_msg=str(e))
         return False
     
 # ══════════════════════════════════════════════════════════════
@@ -1057,7 +1121,7 @@ def submit(cat_id):
         request_id = req_id
         print(f"[COMMIT OK] request_id={request_id}")
 
-    except cx_Oracle.Error as e:
+    except config.db_error() as e:
         if conn:
             try: conn.rollback()
             except: pass
@@ -1080,14 +1144,15 @@ def submit(cat_id):
     #  SEND LINE (หลัง commit เท่านั้น)
     # ══════════════════════════════════════════════════════════
     if not skip_approval:
-        # dev: fix LINE ID / prod: ดึงจาก DB
-        approver_line_id = "U1a079046647a4390627f067ee7e045ca"
-        # approver_line_id = get_approver_line_id(emp.get("approver", ""))
+        approver_line_id, approver_emp = notify_target(emp.get("approver", ""))
 
         if approver_line_id:
-            send_line_flex(approver_line_id, str(request_id), data)
+            send_line_flex(approver_line_id, str(request_id), data,
+                           notify_type="APPROVER", to_emp=approver_emp)
         else:
             print("[LINE] ไม่มี LINE_ID ของ approver — ข้ามการส่ง")
+            log_notify(request_id, "APPROVER", approver_emp, "",
+                       "SKIP", error_msg="ไม่พบ LINE_ID ของ approver ใน SBP_EMPLOYEE")
 
     return render_template("success.html", ticket=request_id, cat=cat, op_type=op_type)
 
@@ -1624,16 +1689,14 @@ def resend_approver(ticket_no):
         # หา LINE ID ของ approver
         # ─────────────────────────────────────────────
 
-        # DEV MODE
-        approver_line_id = "U1a079046647a4390627f067ee7e045ca"
-
-        # PROD MODE
-        # approver_line_id = get_approver_line_id(emp_approver)
+        approver_line_id, approver_emp = notify_target(emp_approver)
 
         print("EMP_APPROVER =", emp_approver)
         print("LINE_ID =", approver_line_id)
 
         if not approver_line_id:
+            log_notify(request_id, "RESEND", approver_emp, "",
+                       "SKIP", error_msg="ไม่พบ LINE ของหัวหน้า")
             return jsonify({
                 "ok": False,
                 "message": "ไม่พบ LINE ของหัวหน้า"
@@ -1684,7 +1747,9 @@ def resend_approver(ticket_no):
         ok = send_line_flex(
             approver_line_id,
             str(request_id),
-            data
+            data,
+            notify_type="RESEND",
+            to_emp=approver_emp
         )
 
         if not ok:
@@ -1804,9 +1869,15 @@ def send_receiver(ticket_no):
             return jsonify({
                 "ok": True
             })
-        # เจ้าหน้าที่คลัง พี่น้ำฝน พี่ซุป
+        # เจ้าหน้าที่คลัง — รายชื่อจริงตั้งใน .env (WAREHOUSE_EMP_IDS)
+        # ตอน dev config จะเบนไปหา DEV_NOTIFY_EMP_ID ให้เอง
         elif receiver_type == "warehouse":
-            WAREHOUSE_EMP_IDS = ["4620017", "2550335" ,"4670008"]  # พี่น้ำฝน พี่ซุป พี่แอน
+            WAREHOUSE_EMP_IDS = config.notify_emp_ids(config.WAREHOUSE_EMP_IDS)
+            if not WAREHOUSE_EMP_IDS:
+                return jsonify({
+                    "ok": False,
+                    "message": "ยังไม่ได้ตั้ง WAREHOUSE_EMP_IDS ใน .env"
+                }), 500
 
             cur.execute("""
                 SELECT REQUEST_CATEGORY, REQUEST_REMARK, REQUEST_DATE,
@@ -1826,8 +1897,12 @@ def send_receiver(ticket_no):
                 for wh_emp in WAREHOUSE_EMP_IDS:
                     wh_data = get_employee_line(wh_emp)
                     if wh_data and wh_data["line_id"]:
-                        send_manager_flex(wh_data["line_id"], str(ticket_no), line_data, action="receiver")
+                        send_manager_flex(wh_data["line_id"], str(ticket_no), line_data,
+                                          action="receiver", to_emp=wh_emp)
                         print(f"[WAREHOUSE] ส่งให้ {wh_data['name']} ({wh_emp}) สำเร็จ")
+                    else:
+                        log_notify(ticket_no, "RECEIVER", wh_emp, "",
+                                   "SKIP", error_msg="เจ้าหน้าที่คลังยังไม่ได้ผูก LINE")
             receiver_emp_code = WAREHOUSE_EMP_IDS[0]
 
         elif receiver_type == "internal":
@@ -1836,7 +1911,7 @@ def send_receiver(ticket_no):
                     "ok": False,
                     "message": "กรอกรหัสพนักงาน"
                 }), 400
-            receiver_emp_code = emp_code
+            receiver_emp_code = config.notify_emp_id(emp_code)
         else:
             return jsonify({
                 "ok": False,
@@ -1859,6 +1934,8 @@ def send_receiver(ticket_no):
         receiver_line = emp_data["line_id"]
 
         if not receiver_line:
+            log_notify(ticket_no, "RECEIVER", receiver_emp_code, "",
+                       "SKIP", error_msg="พนักงานยังไม่ได้ผูก LINE")
             return jsonify({
                 "ok": False,
                 "message": "พนักงานยังไม่ได้ผูก LINE"
@@ -1906,7 +1983,8 @@ def send_receiver(ticket_no):
             receiver_line,
             str(ticket_no),
             line_data,
-            action="receiver"
+            action="receiver",
+            to_emp=receiver_emp_code
         )
 
         if not ok:
@@ -1964,8 +2042,9 @@ def send_manager(ticket_no):
 
     conn = None
     try:
-        # FIXED MANAGER EMP
-        emp_code = "4670008"
+        # ผู้จัดการที่รับแจ้ง — ตั้งจริงใน .env (MANAGER_EMP_ID)
+        # ตอน dev config จะเบนไปหา DEV_NOTIFY_EMP_ID ให้เอง
+        emp_code = config.notify_emp_id(config.MANAGER_EMP_ID)
         conn = get_conn()
         cur = conn.cursor()
 
@@ -2022,7 +2101,8 @@ def send_manager(ticket_no):
         manager_line = emp_data["line_id"]
 
         if not manager_line:
-
+            log_notify(ticket_no, "MANAGER", emp_code, "",
+                       "SKIP", error_msg="พนักงานยังไม่ได้ผูก LINE")
             return jsonify({
                 "ok": False,
                 "message": "พนักงานยังไม่ได้ผูก LINE"
@@ -2076,7 +2156,8 @@ def send_manager(ticket_no):
             manager_line,
             str(ticket_no),
             line_data,
-            action="manager"
+            action="manager",
+            to_emp=emp_code
         )
 
         if not ok:
@@ -2683,6 +2764,7 @@ def cancel_request(ticket_no):
             except: pass
 
 if __name__ == "__main__":
-    # debug=True เปิด Werkzeug debugger ซึ่งรัน code ที่ส่งมาทาง browser ได้
+    # ใช้ตอน dev เท่านั้น — บน Linux ให้รันผ่าน gunicorn (ดู wsgi.py)
+    # debug เปิด Werkzeug debugger ซึ่งรัน code ที่ส่งมาทาง browser ได้
     # จึงต้องเปิดจาก .env (FLASK_DEBUG=true) เท่านั้น ไม่ใช่ค่าติดมากับ source
     app.run(host="0.0.0.0", port=config.PORT, debug=config.DEBUG)

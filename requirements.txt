@@ -1,11 +1,16 @@
 flask>=3.0.0
 python-dotenv>=1.0.0
 
-# Oracle — app.py ใช้ cx_Oracle (thick mode, ต้องมี Instant Client)
-#          app_prod.py ใช้ oracledb (รองรับ thin mode ไม่ต้องมี client)
-cx_Oracle>=8.3.0
+# Oracle — config.py เลือกให้อัตโนมัติ (ORACLE_DRIVER=auto)
+#   oracledb  : ตัวใหม่ ติดตั้งง่าย (pure python) แต่ต้องมี Instant Client 19.1+
+#   cx_Oracle : ตัวเก่า จำเป็นถ้าเครื่องมี Instant Client 11.2
+# server เป็น Oracle 11.2 จึงต้องใช้ thick mode เสมอ (thin mode ต้อง 12.1+)
 oracledb>=2.0.0
+cx_Oracle>=8.3.0
 
 # ออกใบโอนย้ายเป็น PDF
 xhtml2pdf>=0.2.11
 reportlab>=4.0.0
+
+# WSGI server สำหรับรันบน Linux (gunicorn -w 4 -b 0.0.0.0:5090 wsgi:app)
+gunicorn>=21.2.0; sys_platform != "win32"

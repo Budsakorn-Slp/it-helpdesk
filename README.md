@@ -7,9 +7,9 @@
 
 ```text
 it_helpdesk/
-├── config.py               ← โหลด .env + credential กลาง (ทุก module import ตัวนี้)
-├── app.py                  ← Flask app สำหรับ dev/local (ใช้ cx_Oracle)
-├── app_prod.py             ← Flask app สำหรับ production (ใช้ oracledb + notify.log)
+├── config.py               ← โหลด .env + เลือก Oracle driver + config กลาง
+├── app.py                  ← Flask app (ไฟล์เดียว ใช้ได้ทั้ง dev และ prod)
+├── wsgi.py                 ← entry point สำหรับ gunicorn บน Linux
 ├── approve_api.py          ← blueprint: หน้าอนุมัติ/ปฏิเสธรายเอกสาร
 ├── approve_list.py         ← blueprint: หน้ารวมเอกสารของผู้อนุมัติแต่ละคน
 ├── transfer_pdf.py         ← blueprint: ออกใบโอนย้ายเป็น PDF (xhtml2pdf)
@@ -58,8 +58,14 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # 4. รัน
-python app.py            # dev   → http://127.0.0.1:5090
-python app_prod.py       # prod
+python app.py            # dev → http://127.0.0.1:5090
+```
+
+บน Linux ใช้ gunicorn:
+
+```bash
+pip install gunicorn
+gunicorn -w 4 -b 0.0.0.0:5090 wsgi:app
 ```
 
 สร้าง `SECRET_KEY` ด้วย:
@@ -77,14 +83,44 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 | ตัวแปร | ความหมาย |
 | --- | --- |
-| `ORACLE_USER` / `ORACLE_PASSWORD` / `ORACLE_DSN` | **จำเป็น** — ถ้าไม่ตั้ง app จะ error ทันทีที่ต่อ DB |
-| `ORACLE_CLIENT_LIB_DIR` | path ของ Instant Client (เว้นว่างได้ถ้าอยู่ใน PATH) |
+| `APP_ENV` | `dev` หรือ `prod` — **สวิตช์หลัก** ดูตารางข้างล่าง |
+| `ORACLE_USER` / `ORACLE_PASSWORD` / `ORACLE_DSN` | **จำเป็น** — ถ้าไม่ตั้ง app จะ error ตอน start |
+| `ORACLE_CLIENT_LIB_DIR` | path ของ Instant Client (เว้นว่างได้ถ้าอยู่ใน `PATH` / `LD_LIBRARY_PATH`) |
+| `ORACLE_DRIVER` | `auto` (ปกติ) / `oracledb` / `cx_Oracle` |
 | `LINE_CHANNEL_TOKEN` | token ของ LINE Messaging API — ถ้าว่างจะข้ามการส่งแจ้งเตือน |
 | `APP_BASE_URL` | URL ที่ผู้ใช้กดจาก LINE ต้องเข้าถึงได้จากภายนอก |
+| `MANAGER_EMP_ID` | รหัสผู้จัดการที่รับแจ้ง (ใช้เมื่อ `APP_ENV=prod`) |
+| `WAREHOUSE_EMP_IDS` | รหัสเจ้าหน้าที่คลัง คั่นด้วย `,` (ใช้เมื่อ `APP_ENV=prod`) |
+| `DEV_NOTIFY_EMP_ID` | ตอน dev แจ้งเตือนทุกชนิดวิ่งมาที่คนนี้คนเดียว |
 | `SECRET_KEY` | ถ้าไม่ตั้งจะสุ่มให้ → session หลุดทุกครั้งที่ restart |
-| `FLASK_DEBUG` | `true` เพื่อเปิด debugger — **ห้ามเปิดบน production** |
-| `SESSION_COOKIE_SECURE` | `true` เมื่อรันหลัง HTTPS (เปิด `SameSite=None; Secure`) |
+| `FLASK_DEBUG` | override ค่าจาก `APP_ENV` — **ห้ามเปิดบน production** |
+| `SESSION_COOKIE_SECURE` | override ค่าจาก `APP_ENV` |
 | `PORT` | default `5090` |
+
+### APP_ENV เปลี่ยนอะไรบ้าง
+
+เดิมแยกเป็น `app.py` (dev) กับ `app_prod.py` (prod) ซึ่งต้องคอย comment สลับ
+บรรทัดในโค้ดเวลา deploy — เสี่ยงเผลอเอาค่า dev ขึ้น prod ตอนนี้เหลือไฟล์เดียว
+แล้วคุมด้วย `APP_ENV` แทน **ขึ้น Linux ไม่ต้องแก้โค้ดเลย แก้แค่ `.env`**
+
+| | `APP_ENV=dev` | `APP_ENV=prod` |
+| --- | --- | --- |
+| ผู้อนุมัติ / คลัง / ผู้จัดการ | ส่งไปหา `DEV_NOTIFY_EMP_ID` ทั้งหมด | ส่งให้คนจริง |
+| `FLASK_DEBUG` | เปิด | ปิด |
+| `SESSION_COOKIE_SECURE` | ปิด | เปิด (`SameSite=None; Secure`) |
+
+### Oracle driver เลือกยังไง
+
+Oracle server เป็น **11.2** ซึ่ง `oracledb` แบบ thin mode ใช้ไม่ได้ (ต้อง 12.1+)
+จึงต้องใช้ thick mode + Instant Client เสมอ และ driver ที่ใช้ได้ขึ้นกับเวอร์ชัน client:
+
+| Instant Client | driver ที่ใช้ได้ |
+| --- | --- |
+| 11.2 (เครื่อง dev เดิม) | `cx_Oracle` เท่านั้น (`oracledb` ต้องการ 19.1+) |
+| 19+ (แนะนำบน Linux) | `oracledb` |
+
+`ORACLE_DRIVER=auto` จะลอง `oracledb` ก่อนแล้วถอยไป `cx_Oracle` ให้อัตโนมัติ
+ตอน start จะ print ว่าเลือกตัวไหน
 
 ## เพิ่มประเภทคำร้อง
 
