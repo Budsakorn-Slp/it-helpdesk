@@ -1,9 +1,20 @@
 import os
 import json
 import logging
+import sys
 import urllib.request
 import urllib.error
 from logging.handlers import RotatingFileHandler
+
+# โค้ดนี้ print ภาษาไทยเยอะมาก ถ้า console เข้ารหัสไม่ได้ (เช่น cp874 บน Windows
+# เจอตัวอักษรนอกภาษาไทย) print จะโยน UnicodeEncodeError แล้วทำให้ request พังทั้งเส้น
+# — เคยทำให้ POST /submit/4 ตอบ 500 มาแล้ว จึงบังคับเป็น UTF-8 และให้แทนที่
+# ตัวที่เข้ารหัสไม่ได้แทนการ raise
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 import config
 
@@ -1025,10 +1036,13 @@ def submit(cat_id):
         "buyer_price":           buyer_price,
     }
 
-    print("====== RAW FORM ======")
-    print(dict(request.form))
-    print("====== FINAL DATA ======")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    # dump เฉพาะตอน debug — ของเดิม print ทุก request ทำให้ log บวมและ
+    # พ่นข้อมูลที่ผู้ใช้กรอกทั้งหมดลง stdout
+    if config.DEBUG:
+        print("====== RAW FORM ======")
+        print(dict(request.form))
+        print("====== FINAL DATA ======")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
 
     # ══════════════════════════════════════════════════════════
     #  DATABASE TRANSACTION
