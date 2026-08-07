@@ -167,6 +167,149 @@ def approve_list_action():
 
 
 # ──────────────────────────────────────────────
+#  ส่งต่อสิทธิ์อนุมัติให้พนักงานคนอื่น
+# ──────────────────────────────────────────────
+def _lookup_employee(emp_id):
+    """หา NAME + LINE_ID จาก SBP_EMPLOYEE ด้วย EMP_ID"""
+    conn = _db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT EMP_ID, NAME, LINE_ID
+            FROM   SBP_EMPLOYEE
+            WHERE  EMP_ID = :emp
+        """, {"emp": emp_id})
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "emp_id":  row[0],
+            "name":    row[1] or "",
+            "line_id": row[2] or "",
+        }
+    finally:
+        conn.close()
+
+
+@approve_list_bp.route("/api/approve-list/employee")
+def approve_list_employee():
+    """ให้หน้าเว็บเช็คชื่อก่อนกดส่งต่อ จะได้เห็นว่าส่งให้ใคร"""
+    emp_id = (request.args.get("emp") or "").strip()
+    if not emp_id:
+        return jsonify({"found": False, "error": "ไม่ได้ระบุรหัสพนักงาน"}), 400
+    e = _lookup_employee(emp_id)
+    if not e:
+        return jsonify({"found": False, "error": "ไม่พบรหัสพนักงานนี้"}), 404
+    return jsonify({
+        "found":    True,
+        "emp_id":   e["emp_id"],
+        "name":     e["name"],
+        "has_line": bool(e["line_id"]),
+    })
+
+
+@approve_list_bp.route("/api/approve-list/forward", methods=["POST"])
+def approve_list_forward():
+    """โอนสิทธิ์อนุมัติไปให้พนักงานอีกคน แล้วยิง LINE แจ้งคนนั้น
+
+    โอนได้เฉพาะใบที่ยัง Waiting และเป็นของ emp ที่กดเท่านั้น
+    ใบที่อนุมัติ/ยกเลิกไปแล้วจะถูก skip
+    """
+    data   = request.get_json(force=True) or {}
+    emp    = (data.get("emp") or "").strip()        # ผู้อนุมัติคนปัจจุบัน
+    to_emp = (data.get("to_emp") or "").strip()     # ผู้รับมอบ
+    ids    = [str(i).strip() for i in (data.get("ids") or []) if str(i).strip()]
+
+    if not emp or not to_emp or not ids:
+        return jsonify({"error": "ข้อมูลไม่ครบ"}), 400
+    if to_emp == emp:
+        return jsonify({"error": "ส่งต่อให้ตัวเองไม่ได้"}), 400
+
+    target = _lookup_employee(to_emp)
+    if not target:
+        return jsonify({"error": f"ไม่พบรหัสพนักงาน {to_emp}"}), 404
+    if not target["line_id"]:
+        return jsonify({"error": f"{target['name']} ยังไม่ได้ผูก LINE"}), 400
+
+    ok, skip = [], []
+    conn = _db_conn()
+    try:
+        cur = conn.cursor()
+        for rid in ids:
+            cur.execute("""
+                SELECT STATUS FROM IT_HELPDESK_APPROVER
+                WHERE REQUEST_ID = :id AND EMP_APPROVER = :emp
+            """, {"id": rid, "emp": emp})
+            r = cur.fetchone()
+            if not r or (r[0] or "").strip() != "Waiting":
+                skip.append(rid)
+                continue
+
+            # โอนสิทธิ์: ใบนี้จะย้ายไปอยู่คิวของ to_emp และหายจากคิวคนเดิม
+            cur.execute("""
+                UPDATE IT_HELPDESK_APPROVER
+                SET    EMP_APPROVER = :new,
+                       USER_UPDATE  = :old,
+                       DATE_UPDATE  = SYSDATE
+                WHERE  REQUEST_ID = :id AND EMP_APPROVER = :old
+            """, {"new": to_emp, "old": emp, "id": rid})
+            ok.append(rid)
+        conn.commit()
+    except config.db_error() as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+    # ── แจ้ง LINE คนที่รับมอบ (best-effort ไม่ให้พังทั้ง request) ──
+    sent = 0
+    if ok:
+        try:
+            # import ตรงนี้เพราะ app.py import ไฟล์นี้ตอน start — ถ้า import
+            # ระดับ module จะวนกันเอง
+            from app import send_line_flex, notify_target
+
+            line_id, log_emp = notify_target(to_emp)
+            if line_id:
+                conn = _db_conn()
+                try:
+                    cur = conn.cursor()
+                    for rid in ok:
+                        cur.execute("""
+                            SELECT REQUEST_CATEGORY, REQUEST_REMARK, REQUEST_DATE,
+                                   REQUESTER_FNAME, REQUESTER_LNAME
+                            FROM   IT_HELPDESK_REQUEST WHERE REQUEST_ID = :rid
+                        """, {"rid": rid})
+                        r = cur.fetchone()
+                        if not r:
+                            continue
+                        rv = [v.read() if hasattr(v, "read") else v for v in r]
+                        if send_line_flex(
+                            line_id, str(rid),
+                            {
+                                "request_category": rv[0],
+                                "request_remark":   rv[1],
+                                "request_date":     str(rv[2]) if rv[2] else "",
+                                "requester_fname":  rv[3],
+                                "requester_lname":  rv[4],
+                            },
+                            notify_type="FORWARD",
+                            to_emp=log_emp,
+                            list_emp=to_emp,
+                        ):
+                            sent += 1
+                finally:
+                    conn.close()
+        except Exception as e:
+            print("[FORWARD LINE ERROR]", e)
+
+    return jsonify({
+        "ok": ok, "skip": skip, "sent": sent,
+        "to_name": target["name"], "to_emp": to_emp,
+    })
+
+
+# ──────────────────────────────────────────────
 #  RENDER CARD
 # ──────────────────────────────────────────────
 def _asset_table(d):
@@ -232,8 +375,9 @@ def _card(d, group):
     # ปุ่ม / badge ตามกลุ่ม
     if group == "waiting":
         actions = f"""
-            <button class="btn approve" onclick="act('{rid}','Approve')">อนุมัติ</button>
-            <button class="btn reject"  onclick="act('{rid}','Reject')">ยกเลิก</button>"""
+            <button class="btn fwd" onclick="askForward(['{rid}'])">ส่งต่อ</button>
+            <button class="btn reject"  onclick="act('{rid}','Reject')">ยกเลิก</button>
+            <button class="btn approve" onclick="act('{rid}','Approve')">อนุมัติ</button>"""
         check = f'<label class="pickwrap"><input type="checkbox" class="pick" value="{rid}" onchange="sync()"><span></span></label>'
         chip  = '<span class="chip wait">รออนุมัติ</span>'
     elif group == "approved":
@@ -250,8 +394,22 @@ def _card(d, group):
     foot = (f'<div class="foot">{expand_btn}<span class="grow"></span>{actions}</div>'
             if (expand_btn or actions) else "")
 
+    # ข้อความที่ใช้ค้นหา — รวมทุกอย่างที่ผู้ใช้น่าจะพิมพ์หา
+    search_bits = [str(rid), ttl, name, d.get("request_category") or "",
+                   d.get("request_remark") or "", str(d.get("req_date") or "")]
+    if has_tf:
+        search_bits += [
+            _loc(d.get("from_site"), d.get("from_division"), d.get("from_costcenter"),
+                 d.get("from_cost_code"), d.get("from_location")),
+            _loc(d.get("to_site"), d.get("to_division"), d.get("to_costcenter"),
+                 d.get("to_cost_code"), d.get("to_location")),
+        ]
+        for a in d["assets"]:
+            search_bits += [a.get("asset_code") or "", a.get("asset_name") or ""]
+    search_key = esc(" ".join(x for x in search_bits if x).lower())
+
     return f"""
-    <div class="card" data-rid="{rid}">
+    <div class="card" data-rid="{rid}" data-s="{search_key}">
       <div class="top">
         {check}
         <span class="ref">#{rid}</span>
@@ -344,8 +502,9 @@ PAGE = """<!DOCTYPE html>
   .head .ic {{
     width:42px; height:42px; flex:0 0 auto; border-radius:13px;
     background:rgba(255,255,255,.18);
-    display:flex; align-items:center; justify-content:center; font-size:21px;
+    display:flex; align-items:center; justify-content:center;
   }}
+  .head .ic svg {{ width:23px; height:23px; }}
   .head h1 {{ margin:0; font-size:19px; font-weight:700; letter-spacing:-.2px; }}
   .head small {{ opacity:.82; font-size:12.5px; }}
 
@@ -428,6 +587,59 @@ PAGE = """<!DOCTYPE html>
   }}
   .btn.approve {{ color:#fff; background:var(--ok); border-color:var(--ok); }}
   .btn.reject  {{ color:var(--no); border-color:var(--no-soft); background:var(--no-soft); }}
+  .btn.fwd     {{ color:var(--brand); border-color:var(--brand-soft); background:var(--brand-soft); }}
+
+  /* ── ช่องค้นหา + เลือกทั้งหมด ── */
+  .toolbar {{ padding:0 0 12px; }}
+  .searchbox {{ position:relative; }}
+  .searchbox input {{
+    width:100%; font-family:inherit; font-size:15px; color:var(--text);
+    background:var(--surface); border:1px solid var(--line); border-radius:12px;
+    min-height:46px; padding:0 40px 0 40px; outline:none;
+  }}
+  .searchbox input:focus {{ border-color:var(--brand); }}
+  .searchbox .si {{
+    position:absolute; left:13px; top:50%; transform:translateY(-50%);
+    color:var(--muted); pointer-events:none; display:flex;
+  }}
+  .searchbox .si svg {{ width:18px; height:18px; }}
+  .searchbox .sx {{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    width:34px; height:34px; border:none; background:none; cursor:pointer;
+    color:var(--muted); font-size:18px; display:none;
+  }}
+  .searchbox.has .sx {{ display:block; }}
+  .selall {{
+    display:flex; align-items:center; gap:11px;
+    padding:11px 4px 3px; font-size:14px; font-weight:600;
+  }}
+  .selall .n {{ color:var(--muted); font-weight:400; font-size:13px; margin-left:auto; }}
+
+  /* ── modal ส่งต่อ ── */
+  .ov {{
+    display:none; position:fixed; inset:0; z-index:60;
+    background:rgba(10,12,25,.5); align-items:center; justify-content:center;
+    padding:18px;
+  }}
+  .ov.show {{ display:flex; }}
+  .modal {{
+    background:var(--surface); border-radius:18px; width:100%; max-width:380px;
+    padding:20px; box-shadow:0 20px 60px rgba(0,0,0,.3);
+  }}
+  .modal h3 {{ margin:0 0 4px; font-size:17px; }}
+  .modal p {{ margin:0 0 14px; font-size:13px; color:var(--muted); }}
+  .modal input {{
+    width:100%; font-family:inherit; font-size:16px; color:var(--text);
+    background:var(--bg); border:1px solid var(--line); border-radius:11px;
+    min-height:46px; padding:0 14px; outline:none;
+  }}
+  .modal input:focus {{ border-color:var(--brand); }}
+  .who-found {{ font-size:13.5px; margin-top:10px; min-height:20px; }}
+  .who-found.ok {{ color:var(--ok); }}
+  .who-found.err {{ color:var(--no); }}
+  .modal-foot {{ display:flex; gap:9px; margin-top:16px; }}
+  .modal-foot .btn {{ flex:1; }}
+  .btn.ghost {{ color:var(--muted); border-color:var(--line); }}
   .more {{
     font-family:inherit; font-size:13.5px; font-weight:600; color:var(--brand);
     background:none; border:none; padding:6px 0; min-height:38px; cursor:pointer;
@@ -494,7 +706,15 @@ PAGE = """<!DOCTYPE html>
 
 <div class="head">
   <div class="head-in">
-    <div class="ic">&#128203;</div>
+    <div class="ic">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/>
+        <path d="M16 6h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2"/>
+        <path d="M9 12l1.6 1.6L14 10.5"/>
+        <path d="M9 17h6"/>
+      </svg>
+    </div>
     <div><h1>เอกสารของฉัน</h1><small>รหัสพนักงาน {emp}</small></div>
   </div>
 </div>
@@ -508,6 +728,28 @@ PAGE = """<!DOCTYPE html>
 </div>
 
 <div class="wrap">
+  <div class="toolbar">
+    <div class="searchbox" id="sbox">
+      <span class="si">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>
+        </svg>
+      </span>
+      <input id="q" type="search" inputmode="search" autocomplete="off"
+             placeholder="ค้นหา เลขที่ / ผู้ขอ / สินทรัพย์ / หน่วยงาน"
+             oninput="doSearch()">
+      <button class="sx" onclick="clearSearch()" aria-label="ล้างคำค้น">&times;</button>
+    </div>
+    <div class="selall" id="selall-row">
+      <label class="pickwrap">
+        <input type="checkbox" id="selall" onchange="toggleAll(this)"><span></span>
+      </label>
+      <span>เลือกทั้งหมด</span>
+      <span class="n" id="visn"></span>
+    </div>
+  </div>
+
   <div class="pane on" id="p0">{sec_wait}</div>
   <div class="pane" id="p1">{sec_appr}</div>
   <div class="pane" id="p2">{sec_rej}</div>
@@ -516,21 +758,94 @@ PAGE = """<!DOCTYPE html>
 <div class="bulk" id="bulk">
   <span class="cnt">เลือก <b id="bn">0</b> รายการ</span>
   <span class="grow"></span>
+  <button class="btn fwd"     onclick="askForward(picks())">ส่งต่อ</button>
   <button class="btn reject"  onclick="actSel('Reject')">ยกเลิก</button>
   <button class="btn approve" onclick="actSel('Approve')">อนุมัติ</button>
+</div>
+
+<div class="ov" id="fwd-ov">
+  <div class="modal">
+    <h3>ส่งต่อการอนุมัติ</h3>
+    <p id="fwd-sub">โอนสิทธิ์อนุมัติไปให้พนักงานอีกคน</p>
+    <input id="fwd-emp" type="text" inputmode="numeric" autocomplete="off"
+           placeholder="กรอกรหัสพนักงาน เช่น 4670008" oninput="checkEmp()">
+    <div class="who-found" id="fwd-who"></div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closeForward()">ยกเลิก</button>
+      <button class="btn approve" id="fwd-go" onclick="doForward()">ส่งต่อ</button>
+    </div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
 const EMP = {emp_js};
 
+function curPane() {{ return document.querySelector('.pane.on'); }}
+
 function tab(i, el) {{
   document.querySelectorAll('.tab').forEach(function (t) {{ t.classList.remove('on'); }});
   el.classList.add('on');
   document.querySelectorAll('.pane').forEach(function (p, idx) {{ p.classList.toggle('on', idx === i); }});
-  // แถบเลือกหลายรายการมีเฉพาะแท็บรออนุมัติ
+  // แถบเลือกหลายรายการ + เลือกทั้งหมด มีเฉพาะแท็บรออนุมัติ
+  document.getElementById('selall-row').style.display = (i === 0) ? 'flex' : 'none';
   if (i !== 0) document.getElementById('bulk').classList.remove('show');
-  else sync();
+  doSearch();
+}}
+
+/* ── ค้นหา: กรองจาก data-s ของทุกการ์ดในแท็บที่เปิดอยู่ ── */
+function doSearch() {{
+  var q = document.getElementById('q').value.trim().toLowerCase();
+  document.getElementById('sbox').classList.toggle('has', q.length > 0);
+
+  document.querySelectorAll('.pane').forEach(function (pane) {{
+    pane.querySelectorAll('.card').forEach(function (c) {{
+      var hit = !q || (c.getAttribute('data-s') || '').indexOf(q) !== -1;
+      c.style.display = hit ? '' : 'none';
+      // การ์ดที่ถูกซ่อนต้องไม่ติดมากับการเลือก
+      if (!hit) {{
+        var cb = c.querySelector('.pick');
+        if (cb) cb.checked = false;
+      }}
+    }});
+  }});
+
+  var vis = visibleCards().length;
+  document.getElementById('visn').textContent =
+    q ? ('พบ ' + vis + ' รายการ') : (vis + ' รายการ');
+
+  var em = curPane().querySelector('.empty-search');
+  if (q && vis === 0) {{
+    if (!em) {{
+      em = document.createElement('div');
+      em.className = 'empty empty-search';
+      em.textContent = 'ไม่พบรายการที่ตรงกับ "' + q + '"';
+      curPane().appendChild(em);
+    }} else em.textContent = 'ไม่พบรายการที่ตรงกับ "' + q + '"';
+  }} else if (em) em.remove();
+
+  document.getElementById('selall').checked = false;
+  sync();
+}}
+
+function clearSearch() {{
+  document.getElementById('q').value = '';
+  doSearch();
+}}
+
+/* การ์ดที่มองเห็นอยู่ในแท็บปัจจุบัน (หลังกรองคำค้น) */
+function visibleCards() {{
+  return Array.prototype.slice.call(curPane().querySelectorAll('.card'))
+    .filter(function (c) {{ return c.style.display !== 'none'; }});
+}}
+
+/* เลือกทั้งหมด = เฉพาะที่เสิร์ชเจอ ไม่ใช่ทั้ง 38 ใบ */
+function toggleAll(el) {{
+  visibleCards().forEach(function (c) {{
+    var cb = c.querySelector('.pick');
+    if (cb) cb.checked = el.checked;
+  }});
+  sync();
 }}
 
 function tog(el) {{
@@ -577,5 +892,79 @@ function actSel(action) {{
   if (!ids.length) {{ toast('ยังไม่ได้เลือกรายการ'); return; }}
   send(ids, action);
 }}
+
+/* ── ส่งต่อการอนุมัติ ── */
+var fwdIds = [];
+
+function askForward(ids) {{
+  if (!ids || !ids.length) {{ toast('ยังไม่ได้เลือกรายการ'); return; }}
+  fwdIds = ids;
+  document.getElementById('fwd-sub').textContent =
+    'โอนสิทธิ์อนุมัติ ' + ids.length + ' รายการ ไปให้พนักงานอีกคน';
+  document.getElementById('fwd-emp').value = '';
+  document.getElementById('fwd-who').textContent = '';
+  document.getElementById('fwd-who').className = 'who-found';
+  document.getElementById('fwd-ov').classList.add('show');
+  setTimeout(function () {{ document.getElementById('fwd-emp').focus(); }}, 50);
+}}
+
+function closeForward() {{
+  document.getElementById('fwd-ov').classList.remove('show');
+}}
+
+/* เช็คชื่อระหว่างพิมพ์ จะได้เห็นว่ากำลังส่งให้ใครก่อนกดจริง */
+var empTimer = null;
+function checkEmp() {{
+  clearTimeout(empTimer);
+  var v = document.getElementById('fwd-emp').value.trim();
+  var box = document.getElementById('fwd-who');
+  if (!v) {{ box.textContent = ''; box.className = 'who-found'; return; }}
+  empTimer = setTimeout(async function () {{
+    try {{
+      var r = await fetch('/api/approve-list/employee?emp=' + encodeURIComponent(v));
+      var j = await r.json();
+      if (!j.found) {{
+        box.textContent = j.error || 'ไม่พบรหัสพนักงานนี้';
+        box.className = 'who-found err';
+      }} else if (!j.has_line) {{
+        box.textContent = j.name + ' — ยังไม่ได้ผูก LINE ส่งต่อไม่ได้';
+        box.className = 'who-found err';
+      }} else {{
+        box.textContent = 'ส่งให้: ' + j.name;
+        box.className = 'who-found ok';
+      }}
+    }} catch (e) {{
+      box.textContent = 'เช็ครหัสไม่ได้'; box.className = 'who-found err';
+    }}
+  }}, 350);
+}}
+
+async function doForward() {{
+  var to = document.getElementById('fwd-emp').value.trim();
+  if (!to) {{ toast('กรอกรหัสพนักงานก่อน'); return; }}
+  if (!confirm('โอนสิทธิ์อนุมัติ ' + fwdIds.length + ' รายการ ไปให้ ' + to + ' ?\\n' +
+               'รายการเหล่านี้จะหายจากหน้าของคุณ')) return;
+  var btn = document.getElementById('fwd-go');
+  btn.disabled = true;
+  try {{
+    var r = await fetch('/api/approve-list/forward', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{emp: EMP, to_emp: to, ids: fwdIds}})
+    }});
+    var j = await r.json();
+    if (!r.ok) {{ toast(j.error || 'ส่งต่อไม่สำเร็จ'); btn.disabled = false; return; }}
+    closeForward();
+    toast('ส่งต่อให้ ' + (j.to_name || to) + ' แล้ว ' + j.ok.length + ' รายการ');
+    setTimeout(function () {{ location.reload(); }}, 900);
+  }} catch (e) {{
+    toast('เชื่อมต่อไม่ได้'); btn.disabled = false;
+  }}
+}}
+
+document.getElementById('fwd-ov').addEventListener('click', function (e) {{
+  if (e.target === this) closeForward();
+}});
+
+doSearch();   // ตั้งตัวนับ "N รายการ" ตอนโหลดหน้า
 </script>
 </body></html>"""
