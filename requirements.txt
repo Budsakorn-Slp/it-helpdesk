@@ -1,3 +1,11 @@
 flask>=3.0.0
-mysql-connector-python>=8.3.0
 python-dotenv>=1.0.0
+
+# Oracle — app.py ใช้ cx_Oracle (thick mode, ต้องมี Instant Client)
+#          app_prod.py ใช้ oracledb (รองรับ thin mode ไม่ต้องมี client)
+cx_Oracle>=8.3.0
+oracledb>=2.0.0
+
+# ออกใบโอนย้ายเป็น PDF
+xhtml2pdf>=0.2.11
+reportlab>=4.0.0

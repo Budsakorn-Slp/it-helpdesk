@@ -395,6 +395,7 @@ breadcrumb %}
                 >
                   <option value="">-- เลือกฝ่าย --</option>
                 </select>
+                <input type="hidden" name="t1_from_division_name" id="t1-from-division-name">
                 <label>Cost center <span class="req">*</span></label>
                 <select
                   name="t1_from_cost_center"
@@ -406,11 +407,8 @@ breadcrumb %}
                 >
                   <option value="">-- เลือก Cost center --</option>
                 </select>
-                <input
-                  type="hidden"
-                  name="t1_from_cost_code"
-                  id="t1-from-cost-code"
-                />
+                <input type="hidden" name="t1_from_cost_code" id="t1-from-cost-code" />
+                <input type="hidden" name="t1_from_cost_name" id="t1-from-cost-name" />
                 <label>Location <span class="req">*</span></label>
                 <select name="t1_from_location" id="t1-from-location">
                   <option value="">-----------</option>
@@ -448,7 +446,7 @@ breadcrumb %}
                 >
                   <option value="">-- เลือกฝ่าย --</option>
                 </select>
-
+                <input type="hidden" name="t1_to_division_name" id="t1-to-division-name">
                 <label>Cost center <span class="req">*</span></label>
                 <select
                   name="t1_to_cost_center"
@@ -465,7 +463,8 @@ breadcrumb %}
                   name="t1_to_cost_code"
                   id="t1-to-cost-code"
                 />
-
+                <input type="hidden" name="t1_to_cost_code" id="t1-to-cost-code" />
+                <input type="hidden" name="t1_to_cost_name" id="t1-to-cost-name" />
                 <label>Location <span class="req">*</span></label>
                 <select name="t1_to_location" id="t1-to-location">
                   <option value="">-----------</option>
@@ -575,7 +574,7 @@ breadcrumb %}
         <span class="req-note">* จำเป็นต้องกรอก</span>
         <div class="btn-group">
           <a href="{{ url_for('index') }}" class="btn-cancel">ย้อนกลับ</a>
-          <button type="submit" class="btn-submit" onclick="logFormData(event)">
+          <button type="button" class="btn-submit" onclick="handleSubmit(event)">
             ส่งคำขอ
             <svg width="13" height="13"><use href="#i-send" /></svg>
           </button>
@@ -584,6 +583,19 @@ breadcrumb %}
     </form>
   </div>
 </div>
+
+<!-- Confirm Modal -->
+<div id="confirm-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:16px; padding:28px 24px; max-width:320px; width:90%; text-align:center; box-shadow:0 8px 32px rgba(0,0,0,.18);">
+    <div style="font-weight:700; font-size:1rem; margin-bottom:8px;">ยืนยันการส่งคำขอ</div>
+    <div style="color:#6b7280; font-size:.88rem; margin-bottom:20px;">คุณต้องการส่งคำขอนี้ใช่ไหม?</div>
+    <div style="display:flex; gap:10px; justify-content:center;">
+      <button onclick="closeConfirm()" style="flex:1; padding:10px; border:1.5px solid #e5e7eb; border-radius:8px; background:#fff; font-size:.9rem; cursor:pointer;">ยกเลิก</button>
+      <button onclick="doSubmit()" style="flex:1; padding:10px; border:none; border-radius:8px; background:#5b5ef4; color:#fff; font-size:.9rem; font-weight:600; cursor:pointer;">ยืนยัน ส่งคำขอ</button>
+    </div>
+  </div>
+</div>
+
 <script>
   /* ─────────────────────────────────────────
      Level-1: สลับ ยืม / เบิก / โอนย้าย
@@ -672,6 +684,32 @@ breadcrumb %}
         return false;
       }
 
+      if (opType === "borrow") {
+        const site = document.getElementById("borrow-site")?.value;
+        const div  = document.getElementById("borrow-division")?.value;
+        const cc   = document.getElementById("borrow-cost-code")?.value;
+        const asset = document.getElementById("borrow-asset-request")?.value;
+        const start = document.getElementById("borrow_start")?.value;
+        const end   = document.getElementById("borrow_end")?.value;
+        if (!site || !div || !cc || !asset || !start || !end) {
+          alert("กรุณากรอกข้อมูลให้ครบ (Site, ฝ่าย, Cost center, อุปกรณ์, วันที่)");
+          e.preventDefault();
+          return false;
+        }
+      }
+
+      if (opType === "withdraw") {
+        const site  = document.getElementById("withdraw-site")?.value;
+        const div   = document.getElementById("withdraw-division")?.value;
+        const cc    = document.getElementById("withdraw-cost-code")?.value;
+        const asset = document.getElementById("withdraw-asset-request")?.value;
+        if (!site || !div || !cc || !asset) {
+          alert("กรุณากรอกข้อมูลให้ครบ (Site, ฝ่าย, Cost center, อุปกรณ์)");
+          e.preventDefault();
+          return false;
+        }
+      }
+
     const subType =
       document.querySelector('input[name="transfer_sub_type"]:checked')?.value;
 
@@ -680,37 +718,44 @@ breadcrumb %}
     // =========================
     if (opType === "transfer") {
 
+      const company = document.querySelector('input[name="company"]:checked')?.value;
+      if (!company) {
+        alert("กรุณาเลือกบริษัท");
+        e.preventDefault();
+        return false;
+      }
+
+      if (!subType) {
+        alert("กรุณาเลือกประเภทเอกสาร");
+        e.preventDefault();
+        return false;
+      }
+
+      const fromDept = document.getElementById("t1-from-dept")?.value;
       const fromSite = document.getElementById("t1-from-site")?.value;
       const fromDiv  = document.getElementById("t1-from-division")?.value;
       const fromCC   = document.getElementById("t1-from-cost-code")?.value;
       const fromLoc  = document.getElementById("t1-from-location")?.value;
 
+      const toDept = document.getElementById("t1-to-dept")?.value;
       const toSite = document.getElementById("t1-to-site")?.value;
       const toDiv  = document.getElementById("t1-to-division")?.value;
       const toCC   = document.getElementById("t1-to-cost-code")?.value;
       const toLoc  = document.getElementById("t1-to-location")?.value;
 
-      // TRANSFER → ต้องมี FROM + TO + LOCATION
-      if (subType === "TRANSFER") {
-        if (
-          !fromSite || !fromDiv || !fromCC || !fromLoc ||
-          !toSite   || !toDiv   || !toCC   || !toLoc
-        ) {
-          alert("กรุณากรอกต้นทางและปลายทางให้ครบ");
-          e.preventDefault();
-          return false;
-        }
+      if (!fromDept || !fromSite || !fromDiv || !fromCC || !fromLoc ||
+          !toDept   || !toSite   || !toDiv   || !toCC   || !toLoc) {
+        alert("กรุณากรอกข้อมูลต้นทางและปลายทางให้ครบ");
+        e.preventDefault();
+        return false;
       }
 
-      // SALE → ต้องมี FROM + LOCATION + BUYER
       if (subType === "SALE") {
-
         const buyer = document.getElementById("t1-buyer-name")?.value;
         const addr  = document.getElementById("t1-buyer-address")?.value;
         const price = document.getElementById("t1-buyer-price")?.value;
-
-        if (!fromSite || !fromDiv || !fromCC || !fromLoc || !buyer || !addr || !price) {
-          alert("กรุณากรอกต้นทางและข้อมูลผู้ซื้อให้ครบ");
+        if (!buyer || !addr || !price) {
+          alert("กรุณากรอกข้อมูลผู้ซื้อให้ครบ");
           e.preventDefault();
           return false;
         }
@@ -892,6 +937,13 @@ breadcrumb %}
     const deptId = el.value;
     if (!deptId) return;
 
+    const divNameMap = { from: "t1-from-division-name", to: "t1-to-division-name" };
+    const divNameEl = document.getElementById(divNameMap[group] || "");
+    if (divNameEl) {
+      const sel = el.selectedOptions[0];
+      divNameEl.value = sel ? sel.textContent.trim() : "";
+    }
+
     const res = await fetch(`/api/costcenters/${deptId}`);
     const data = await res.json();
 
@@ -910,6 +962,13 @@ breadcrumb %}
     costSel.onchange = () => {
       const sel = costSel.selectedOptions[0];
       if (codeIn) codeIn.value = sel ? sel.dataset.code || "" : "";
+
+      const costNameMap = { from: "t1-from-cost-name", to: "t1-to-cost-name" };
+      const costNameEl = document.getElementById(costNameMap[group] || "");
+      if (costNameEl) {
+        const txt = sel ? sel.textContent.trim() : "";
+        costNameEl.value = txt.includes(" – ") ? txt.split(" – ")[1] : txt;
+      }
     };
   }
 
@@ -955,6 +1014,22 @@ breadcrumb %}
   document.getElementById("section-transfer-sale").style.display =
     val === "SALE" ? "block" : "none";
   console.log("[switchTransferSubType] =", val);
+  }
+
+  function showConfirm() {
+    const modal = document.getElementById("confirm-modal");
+    modal.style.display = "flex";
+  }
+  function closeConfirm() {
+    document.getElementById("confirm-modal").style.display = "none";
+  }
+  function doSubmit() {
+    document.getElementById("request-form").submit();
+  }
+
+  function handleSubmit(e) {
+  const valid = logFormData(e);
+  if (valid !== false) showConfirm();
 }
 
   /* ─── init ─── */

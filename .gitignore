@@ -1,0 +1,45 @@
+# ── Secrets ─────────────────────────────────────────────
+# ห้าม commit ไฟล์ที่มี credential จริง — ใช้ .env.example เป็นตัวอย่างแทน
+.env
+.env.*
+!.env.example
+env
+env.*
+
+# ── Virtual environments ────────────────────────────────
+.venv/
+.venv*/
+venv/
+env/
+ENV/
+.python-version
+
+# ── Python bytecode / build ─────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ── Test / lint cache ───────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Runtime artifacts ───────────────────────────────────
+static/uploads/*
+!static/uploads/.gitkeep
+*.log
+logs/
+
+# ── Editor / OS ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

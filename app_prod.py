@@ -2,8 +2,7 @@ import os
 import json
 import urllib.request
 import urllib.error
-from dotenv import load_dotenv
-load_dotenv("env")
+import config
 import oracledb as cx_Oracle
 
 from flask import (Flask, render_template, request, redirect, url_for, jsonify, session)
@@ -16,30 +15,55 @@ from approve_api import (
 from transfer_pdf import transfer_pdf_bp
 from flask import jsonify
 
+# ── NOTIFY LOG (เพิ่มใหม่) ──────────────────────────────────────
+import logging
+from logging.handlers import RotatingFileHandler
+
 
 app = Flask(__name__)
 app.register_blueprint(approve_bp)
 app.register_blueprint(transfer_pdf_bp)
 
-#cx_Oracle.init_oracle_client(lib_dir=r"C:\instantclient_11_2")
-cx_Oracle.init_oracle_client()
-app.secret_key = os.getenv("SECRET_KEY", "change_this_in_production")
+config.init_oracle_client(cx_Oracle)
 
-# ใช้สำหรับตอน test บน local ตัวเอง
-#app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-#app.config["SESSION_COOKIE_SECURE"]   = False
+# prod ต้องตั้ง SECRET_KEY จริงเสมอ — ถ้าไม่ตั้ง session จะหลุดทุก restart
+# และถ้ารันหลาย worker แต่ละ worker จะถือ key คนละตัว
+app.secret_key = config.SECRET_KEY or os.urandom(32)
+if not config.SECRET_KEY:
+    print("[APP] ไม่ได้ตั้ง SECRET_KEY — สุ่มให้ชั่วคราว, ห้ามใช้แบบนี้บน production")
 
-# สำหรับ deploy จริงบน server ที่มี HTTPS แล้ว ให้ใช้ config นี้แทน
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_SECURE"]   = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 
 # ── LINE ────────────────────────────────────────────────────────
-LINE_TOKEN   = os.getenv("LINE_CHANNEL_TOKEN", "").strip()
-# สำหรับ deploy จริง ให้ตั้งเป็น URL ของ server ที่มี HTTPS เช่น https://helpdesk.sbdsapp.com
-APP_BASE_URL = "https://helpdesk.sbdsapp.com"
+LINE_TOKEN   = config.LINE_TOKEN
+APP_BASE_URL = config.APP_BASE_URL
 
-# สำหรับทดสอบบน local ตัวเอง ให้ตั้งเป็น URL ที่เข้าถึงได้จากมือถือ เช่น ผ่าน ngrok หรือใช้ IP ของเครื่อง
-#APP_BASE_URL = "http://***REMOVED_HOST***:5090"
+# ══════════════════════════════════════════════════════════════
+#  NOTIFY LOG (เพิ่มใหม่) — เขียนผลการส่ง LINE ลงไฟล์ notify.log
+# ══════════════════════════════════════════════════════════════
+notify_logger = logging.getLogger("notify")
+notify_logger.setLevel(logging.INFO)
+_notify_handler = RotatingFileHandler(
+    os.path.join(os.path.dirname(__file__), "notify.log"),
+    maxBytes=5 * 1024 * 1024,   # 5 MB ต่อไฟล์
+    backupCount=5,              # เก็บย้อนหลัง 5 ไฟล์
+    encoding="utf-8"
+)
+_notify_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
+notify_logger.addHandler(_notify_handler)
+
+
+def log_notify(request_id, notify_type, to_emp, to_line, status, http_code="", error_msg=""):
+    """บันทึกผลการส่ง LINE ลง notify.log — ห้าม raise เด็ดขาด เพื่อไม่กระทบ flow หลัก"""
+    try:
+        notify_logger.info(
+            f"req={request_id} | type={notify_type} | emp={to_emp or '-'} | "
+            f"line={to_line or '-'} | status={status} | http={http_code or '-'} | {error_msg or '-'}"
+        )
+    except Exception as e:
+        print(f"[NOTIFY LOG ERROR] {e}")
 
 # ── Upload ──────────────────────────────────────────────────────
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
@@ -55,11 +79,7 @@ def allowed_file(filename):
 #  ORACLE
 # ══════════════════════════════════════════════════════════════
 def get_conn():
-    return cx_Oracle.connect(
-        user     = os.getenv("ORACLE_USER",     "SBLDB"),
-        password = os.getenv("ORACLE_PASSWORD", "***REMOVED***"),
-        dsn      = os.getenv("ORACLE_DSN",      "***REMOVED_DSN***")
-    )
+    return cx_Oracle.connect(**config.oracle_credentials())
 
 # ══════════════════════════════════════════════════════════════
 #  EMPLOYEE LOOKUP
@@ -310,12 +330,14 @@ def do_insert(data):
 # ══════════════════════════════════════════════════════════════
 #  LINE FLEX MESSAGE
 # ══════════════════════════════════════════════════════════════
-def send_line_flex(to_line_id: str, req_id: str, data: dict) -> bool:
+def send_line_flex(to_line_id: str, req_id: str, data: dict, notify_type: str = "APPROVER", to_emp: str = "") -> bool:
     if not LINE_TOKEN:
         print("[LINE] LINE_CHANNEL_TOKEN ไม่ได้ตั้งค่า — ข้ามการส่ง")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "SKIP", error_msg="ไม่ได้ตั้ง LINE_CHANNEL_TOKEN")
         return False
     if not to_line_id:
         print("[LINE] ไม่มี LINE ID ของ approver — ข้ามการส่ง")
+        log_notify(req_id, notify_type, to_emp, "", "SKIP", error_msg="ไม่มี LINE_ID ของผู้รับ")
         return False
 
     base     = APP_BASE_URL
@@ -413,13 +435,16 @@ def send_line_flex(to_line_id: str, req_id: str, data: dict) -> bool:
         with urllib.request.urlopen(req, timeout=10) as resp:
             status = resp.status
         print(f"[LINE PUSH OK] request_id={req_id}  to={to_line_id}  http={status}")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "OK", http_code=status)
         return True
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         print(f"[LINE PUSH ERROR] http={e.code}  body={body}")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", http_code=e.code, error_msg=body)
         return False
     except Exception as e:
         print(f"[LINE PUSH ERROR] {e}")
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", error_msg=str(e))
         return False
     
 
@@ -427,10 +452,15 @@ def send_manager_flex(
     to_line_id: str,
     req_id: str,
     data: dict,
-    action: str = "manager"
+    action: str = "manager",
+    to_emp: str = ""
 ) -> bool:
 
+    # ── NOTIFY LOG (เพิ่มใหม่) — map ประเภท noti จาก action ──
+    notify_type = "RECEIVER" if action == "receiver" else "MANAGER"
+
     if not LINE_TOKEN:
+        log_notify(req_id, notify_type, to_emp, to_line_id, "SKIP", error_msg="ไม่ได้ตั้ง LINE_CHANNEL_TOKEN")
         return False
 
     base = APP_BASE_URL
@@ -544,18 +574,22 @@ def send_manager_flex(
                 f"to={to_line_id} "
                 f"http={res.status}"
             )
+            log_notify(req_id, notify_type, to_emp, to_line_id, "OK", http_code=res.status)
             return True
     except urllib.error.HTTPError as e:
+        body = e.read().decode()
         print(
             "[LINE PUSH ERROR]",
-            e.read().decode()
+            body
         )
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", http_code=e.code, error_msg=body)
         return False
     except Exception as e:
         print(
             "[LINE PUSH EXCEPTION]",
             e
         )
+        log_notify(req_id, notify_type, to_emp, to_line_id, "FAIL", error_msg=str(e))
         return False
     
 # ══════════════════════════════════════════════════════════════
@@ -1086,9 +1120,13 @@ def submit(cat_id):
         approver_line_id = get_approver_line_id(emp.get("approver", ""))
 
         if approver_line_id:
-            send_line_flex(approver_line_id, str(request_id), data)
+            send_line_flex(approver_line_id, str(request_id), data,
+                           notify_type="APPROVER", to_emp=emp.get("approver", ""))
         else:
             print("[LINE] ไม่มี LINE_ID ของ approver — ข้ามการส่ง")
+            # ── NOTIFY LOG (เพิ่มใหม่) — เก็บเคสที่หา LINE_ID ไม่เจอ ──
+            log_notify(request_id, "APPROVER", emp.get("approver", ""), "",
+                       "SKIP", error_msg="ไม่พบ LINE_ID ของ approver ใน SBP_EMPLOYEE")
 
     return render_template("success.html", ticket=request_id, cat=cat, op_type=op_type)
 
@@ -1136,9 +1174,6 @@ def track():
         try:
             conn = get_conn()
             cur  = conn.cursor()
-            # =====================================================
-            # MAIN REQUEST
-            # =====================================================
             base_sql = """
                 SELECT
                     R.REQUEST_ID,
@@ -1168,22 +1203,14 @@ def track():
 
             if req_id:
                 cur.execute(
-                    base_sql +
-                    " AND R.REQUEST_ID = :val "
-                    " ORDER BY R.REQUEST_ID DESC",
+                    base_sql + " AND R.REQUEST_ID = :val ORDER BY R.REQUEST_ID DESC",
                     {"val": req_id}
                 )
             else:
                 cur.execute(
-                    base_sql +
-                    " AND R.REQUESTER_EMPCODE = :val "
-                    " ORDER BY R.REQUEST_ID DESC",
+                    base_sql + " AND R.REQUESTER_EMPCODE = :val ORDER BY R.REQUEST_ID DESC",
                     {"val": emp_id}
                 )
-
-            # =====================================================
-            # READ ROW
-            # =====================================================
 
             def read_row(row):
                 out = []
@@ -1193,16 +1220,12 @@ def track():
                     else:
                         out.append(v)
                 return out
+
             cols = [d[0].lower() for d in cur.description]
             results = [
                 dict(zip(cols, read_row(r)))
                 for r in cur.fetchall()
             ]
-
-            # =====================================================
-            # TRANSFER IDS — ดึงจาก IT_HELPDESK_TRANSFER โดยตรง
-            # ไม่ต้อง maintain list type อีกต่อไป
-            # =====================================================
 
             all_request_ids = [str(r["request_id"]) for r in results]
             transfer_ids = []
@@ -1215,19 +1238,11 @@ def track():
                 )
                 transfer_ids = [str(row[0]) for row in cur.fetchall()]
 
-            # =====================================================
-            # LOAD TRANSFER DATA
-            # =====================================================
+            transfer_map = {}
 
             if transfer_ids:
-                fmt = ",".join([
-                    ":rid" + str(i)
-                    for i in range(len(transfer_ids))
-                ])
-                bind = dict(
-                    ("rid" + str(i), v)
-                    for i, v in enumerate(transfer_ids)
-                )
+                fmt = ",".join([":rid" + str(i) for i in range(len(transfer_ids))])
+                bind = dict(("rid" + str(i), v) for i, v in enumerate(transfer_ids))
                 sql = (
                     "SELECT "
                     " T.REQUEST_ID,"
@@ -1237,13 +1252,13 @@ def track():
                     " T.RECEIVER_STATUS,"
                     " T.STATUS AS TRANSFER_STATUS,"
                     " FD.COST_COMPANY AS FROM_SITE_NAME,"
-                    " FD.COST_DEPARTMENT AS FROM_DIV_NAME,"
+                    " T.FROM_DIVISION AS FROM_DIV_NAME,"
                     " T.FROM_COST_CODE,"
-                    " NULL AS FROM_LOC_NAME,"
-                    " TD.COST_COMPANY  AS TO_SITE_NAME,"
-                    " TD.COST_DEPARTMENT AS TO_DIV_NAME,"
+                    " T.FROM_LOCATION AS FROM_LOC_NAME,"
+                    " TD.COST_COMPANY AS TO_SITE_NAME,"
+                    " T.TO_DIVISION AS TO_DIV_NAME,"
                     " T.TO_COST_CODE,"
-                    " NULL AS TO_LOC_NAME"
+                    " T.TO_LOCATION AS TO_LOC_NAME"
                     " FROM IT_HELPDESK_TRANSFER T"
                     " LEFT JOIN IT_HELPDESK_DEPARTMENT FD"
                     " ON (CASE WHEN REGEXP_LIKE(T.FROM_COSTCENTER, '^[0-9]+$') THEN TO_NUMBER(T.FROM_COSTCENTER) ELSE NULL END) = FD.COST_ID"
@@ -1251,263 +1266,155 @@ def track():
                     " ON (CASE WHEN REGEXP_LIKE(T.TO_COSTCENTER, '^[0-9]+$') THEN TO_NUMBER(T.TO_COSTCENTER) ELSE NULL END) = TD.COST_ID"
                     " WHERE T.REQUEST_ID IN (" + fmt + ")"
                 )
-
                 cur.execute(sql, bind)
-                tcols = [
-                    d[0].lower()
-                    for d in cur.description
-                ]
+                tcols = [d[0].lower() for d in cur.description]
                 transfer_map = dict(
-                    (
-                        str(row[0]),
-                        dict(zip(tcols, row))
-                    )
+                    (str(row[0]), dict(zip(tcols, row)))
                     for row in cur.fetchall()
                 )
-                # =====================================================
-                # BUILD DISPLAY DATA
-                # =====================================================
-                for r in results:
-                    rid = str(r.get("request_id", ""))
-                    if rid not in transfer_map:
-                            r["has_transfer"] = False
-                            # ✅ เช็ค request_status ก่อนทุก logic
-                            if str(r.get("request_status", "")) == "5":
-                                r["display_status"] = "เสร็จสิ้น"
-                                r["display_class"]  = "done"
-                                r["display_remark"] = r.get("request_remark", "")
-                                continue
-                            # fallback สำหรับ non-transfer
-                            apv = str(r.get("approver_status") or "")
-                            if apv == "Waiting":
-                                r["display_status"] = "รออนุมัติ"
-                                r["display_class"]  = "4"
-                            elif apv == "Approve":
-                                r["display_status"] = "อนุมัติแล้ว / รอ IT ดำเนินการ"
-                                r["display_class"]  = "5"
-                            elif apv == "Reject":
-                                r["display_status"] = "ยกเลิก"
-                                r["display_class"]  = "3"
-                            elif apv == "Done":
-                                r["display_status"] = "เสร็จสิ้น"
-                                r["display_class"]  = "done"
-                            else:
-                                r["display_status"] = "รออนุมัติ"
-                                r["display_class"]  = "4"
-                            r["display_remark"] = r.get("request_remark", "")
-                            continue
-                    t = transfer_map[rid]
-                    r["has_transfer"] = True
-                    # -------------------------------------------------
-                    # REMARK
-                    # -------------------------------------------------
-                    parts = [
-                        f"[{t.get('transfer_type_name') or 'โอนย้าย'}]"
-                    ]
-                    from_s = " / ".join(filter(None, [
-                        t.get("from_site_name"),
-                        t.get("from_div_name"),
-                        t.get("from_cost_code")
 
-                    ]))
-
-                    to_s = " / ".join(filter(None, [
-                        t.get("to_site_name"),
-                        t.get("to_div_name"),
-                        t.get("to_cost_code")
-
-                    ]))
-
-                    if from_s:
-                        parts.append(
-                            f"ต้นทาง: {from_s}" +
-                            (
-                                f" | Location: {t['from_loc_name']}"
-                                if t.get("from_loc_name")
-                                else ""
-                            )
-                        )
-                    if to_s:
-                        parts.append(
-                            f"ปลายทาง: {to_s}" +
-                            (
-                                f" | Location: {t['to_loc_name']}"
-                                if t.get("to_loc_name")
-                                else ""
-                            )
-                        )
-
-                    # -------------------------------------------------
-                    # ASSETS
-                    # -------------------------------------------------
-
-                    cur.execute("""
-                        SELECT
-                            ITEM_NO,
-                            ASSET_CODE,
-                            ASSET_NAME,
-                            ASSET_REMARK
-                        FROM IT_HELPDESK_ASSET
-                        WHERE TRANSFER_ID = (
-                            SELECT ID
-                            FROM IT_HELPDESK_TRANSFER
-                            WHERE REQUEST_ID = :rid
-                        )
-                        ORDER BY ITEM_NO
-                    """, {
-                        "rid": rid
-                    })
-
-                    asset_rows = cur.fetchall()
-
-                    if asset_rows:
-                        parts.append("สินทรัพย์:")
-                        for i, a in enumerate(asset_rows, 1):
-                            code   = a[1] or ""
-                            name   = a[2] or ""
-                            remark = a[3] or ""
-                            line = f"{i}. {code} {name}".strip()
-                            if remark:
-                                line += f" ({remark})"
-                            parts.append(line)
-
-                    # -------------------------------------------------
-                    # EXTRA REMARK
-                    # -------------------------------------------------
-
-                    if r.get("request_remark"):
-                        remark_lines = (
-                            r["request_remark"]
-                            .split("\n")
-                        )
-                        extra = []
-                        for line in remark_lines:
-                            if "หมายเหตุ:" in line:
-                                extra.append(line)
-                        if extra:
-                            parts.extend(extra)
-
-                    # =================================================
-                    # STATUS DISPLAY
-                    # =================================================
-
-                    approver_status = str(
-                        r.get("approver_status") or ""
-                    )
-
-                    transfer_type = str(
-                        t.get("transfer_type") or ""
-                    )
-
-                    receiver_status = str(
-                        t.get("receiver_status") or ""
-                    )
-
-                    manager_approve_date = (
-                        t.get("manager_approve_date")
-                    )
-
-                    display_status = ""
-                    display_class  = ""
-
-                    # -------------------------------------------------
-                    # ✅ เช็ค REQUEST_STATUS = 5 ก่อนทุก logic
-                    # -------------------------------------------------
+            # =====================================================
+            # BUILD DISPLAY DATA
+            # =====================================================
+            for r in results:
+                rid = str(r.get("request_id", ""))
+                if rid not in transfer_map:
+                    r["has_transfer"] = False
                     if str(r.get("request_status", "")) == "5":
-                        display_status = "เสร็จสิ้น"
-                        display_class  = "done"
+                        r["display_status"] = "เสร็จสิ้น"
+                        r["display_class"]  = "done"
+                        r["display_remark"] = r.get("request_remark", "")
+                        continue
+                    apv = str(r.get("approver_status") or "")
+                    if apv == "Waiting":
+                        r["display_status"] = "รออนุมัติ"
+                        r["display_class"]  = "4"
+                    elif apv == "Approve":
+                        r["display_status"] = "อนุมัติแล้ว / รอ IT ดำเนินการ"
+                        r["display_class"]  = "5"
+                    elif apv == "Reject":
+                        r["display_status"] = "ยกเลิก"
+                        r["display_class"]  = "3"
+                    elif apv == "Done":
+                        r["display_status"] = "เสร็จสิ้น"
+                        r["display_class"]  = "done"
+                    else:
+                        r["display_status"] = "รออนุมัติ"
+                        r["display_class"]  = "4"
+                    r["display_remark"] = r.get("request_remark", "")
+                    continue
 
-                    # -------------------------------------------------
-                    # WAITING
-                    # -------------------------------------------------
-                    elif approver_status == "Waiting":
+                t = transfer_map[rid]
+                r["has_transfer"] = True
+
+                parts = [f"[{t.get('transfer_type_name') or 'โอนย้าย'}]"]
+
+                from_s = " / ".join(filter(None, [
+                    t.get("from_site_name"),
+                    t.get("from_div_name"),
+                ]))
+                to_s = " / ".join(filter(None, [
+                    t.get("to_site_name"),
+                    t.get("to_div_name"),
+                ]))
+
+                if from_s:
+                    cc  = t.get("from_cost_code") or ""
+                    loc = t.get("from_loc_name") or ""
+                    line = f"ต้นทาง: {from_s}"
+                    if cc:  line += f" / {cc}"
+                    if loc: line += f" | Location: {loc}"
+                    parts.append(line)
+
+                if to_s:
+                    cc  = t.get("to_cost_code") or ""
+                    loc = t.get("to_loc_name") or ""
+                    line = f"ปลายทาง: {to_s}"
+                    if cc:  line += f" / {cc}"
+                    if loc: line += f" | Location: {loc}"
+                    parts.append(line)
+
+                cur.execute("""
+                    SELECT ITEM_NO, ASSET_CODE, ASSET_NAME, ASSET_REMARK
+                    FROM IT_HELPDESK_ASSET
+                    WHERE TRANSFER_ID = (
+                        SELECT ID FROM IT_HELPDESK_TRANSFER WHERE REQUEST_ID = :rid
+                    )
+                    ORDER BY ITEM_NO
+                """, {"rid": rid})
+
+                asset_rows = cur.fetchall()
+                if asset_rows:
+                    parts.append("สินทรัพย์:")
+                    for i, a in enumerate(asset_rows, 1):
+                        code   = a[1] or ""
+                        name   = a[2] or ""
+                        remark = a[3] or ""
+                        line = f"{i}. {code} {name}".strip()
+                        if remark:
+                            line += f" ({remark})"
+                        parts.append(line)
+
+                if r.get("request_remark"):
+                    extra = [l for l in r["request_remark"].split("\n") if "หมายเหตุ:" in l]
+                    if extra:
+                        parts.extend(extra)
+
+                approver_status      = str(r.get("approver_status") or "")
+                transfer_type        = str(t.get("transfer_type") or "")
+                receiver_status      = str(t.get("receiver_status") or "")
+                manager_approve_date = t.get("manager_approve_date")
+                display_status = ""
+                display_class  = ""
+
+                if str(r.get("request_status", "")) == "5":
+                    display_status = "เสร็จสิ้น"
+                    display_class  = "done"
+                elif approver_status == "Waiting":
+                    display_status = "รออนุมัติ"
+                    display_class  = "4"
+                elif approver_status == "Approve":
+                    if transfer_type == "TRANSFER":
+                        display_status = "อยู่ระหว่างรอปิดงานโดย IT" if receiver_status == "Confirmed" else "อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม"
+                    elif transfer_type in ["REPAIR", "BORROW"]:
+                        display_status = "อยู่ระหว่างรอปิดงานโดย IT" if receiver_status == "Confirmed" else "อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม"
+                    elif transfer_type in ["DISPOSE", "SALE"]:
+                        display_status = "อยู่ระหว่างรอปิดงานโดย IT" if manager_approve_date else "อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม"
+                    else:
+                        display_status = "อนุมัติแล้ว / รอ IT ดำเนินการ"
+                    display_class = "5"
+                elif approver_status == "Reject":
+                    display_status = "ยกเลิก"
+                    display_class  = "3"
+                elif approver_status == "Done":
+                    display_status = "เสร็จสิ้น"
+                    display_class  = "done"
+                else:
+                    t_status = str(t.get("transfer_status") or "").upper()
+                    if t_status == "PENDING":
+                        display_status = "รออนุมัติ"
+                        display_class  = "4"
+                    elif t_status in ("RECEIVER_CONFIRMED", "WAITING_IT"):
+                        display_status = "อยู่ระหว่างรอปิดงานโดย IT"
+                        display_class  = "5"
+                    elif t_status == "DONE":
+                        display_status = "เสร็จสิ้น"
+                        display_class  = "5"
+                    else:
                         display_status = "รออนุมัติ"
                         display_class  = "4"
 
-                    # -------------------------------------------------
-                    # APPROVED
-                    # -------------------------------------------------
-
-                    elif approver_status == "Approve":
-                        # TRANSFER
-                        if transfer_type == "TRANSFER":
-                            if receiver_status == "Confirmed":
-                                display_status = "อยู่ระหว่างรอปิดงานโดย IT"
-                            else:
-                                display_status = "อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม"
-
-                        # REPAIR / BORROW → ใช้ receiver_status
-                        elif transfer_type in ["REPAIR", "BORROW"]:
-                            if receiver_status == "Confirmed":
-                                display_status = "อยู่ระหว่างรอปิดงานโดย IT"
-                            else:
-                                display_status = "อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม"
-
-                        # DISPOSE / SALE → ใช้ manager_approve_date
-                        elif transfer_type in ["DISPOSE", "SALE"]:
-                            if manager_approve_date:
-                                display_status = "อยู่ระหว่างรอปิดงานโดย IT"
-                            else:
-                                display_status = "อนุมัติแล้ว / รอลายเซ็นเพิ่มเติม"
-                        else:
-                            display_status = "อนุมัติแล้ว / รอ IT ดำเนินการ"
-
-                        display_class = "5"
-
-                    # -------------------------------------------------
-                    # REJECT
-                    # -------------------------------------------------
-
-                    elif approver_status == "Reject":
-                        display_status = "ยกเลิก"
-                        display_class  = "3"
-
-                    # -------------------------------------------------
-                    # DONE
-                    # -------------------------------------------------
-
-                    elif approver_status == "Done":
-                        display_status = "เสร็จสิ้น"
-                        display_class  = "done"
-
-                    # -------------------------------------------------
-                    # DEFAULT
-                    # -------------------------------------------------
-
-                    else:
-                        t_status = str(t.get("transfer_status") or "").upper()
-                        if t_status == "PENDING":
-                            display_status = "รออนุมัติ"
-                            display_class  = "4"
-                        elif t_status in ("RECEIVER_CONFIRMED", "WAITING_IT"):
-                            display_status = "อยู่ระหว่างรอปิดงานโดย IT"
-                            display_class  = "5"
-                        elif t_status == "DONE":
-                            display_status = "เสร็จสิ้น"
-                            display_class  = "5"
-                        else:
-                            display_status = "รออนุมัติ"
-                            display_class  = "4"
-
-                    # inject
-                    r["display_status"] = display_status
-                    r["display_class"]  = display_class
-
-                    # final remark
-                    r["display_remark"] = "\n".join(parts)
+                r["display_status"] = display_status
+                r["display_class"]  = display_class
+                r["display_remark"] = "\n".join(parts)
 
         except Exception as e:
             error = str(e)
-            print(
-                f"[TRACK ERROR] "
-                f"{type(e).__name__}: {e}"
-            )
+            print(f"[TRACK ERROR] {type(e).__name__}: {e}")
         finally:
             if conn:
-                try:
-                    conn.close()
-                except:
-                    pass
+                try: conn.close()
+                except: pass
 
     return render_template(
         "track.html",
@@ -1760,6 +1667,9 @@ def resend_approver(ticket_no):
         print("LINE_ID =", approver_line_id)
 
         if not approver_line_id:
+            # ── NOTIFY LOG (เพิ่มใหม่) — เก็บเคส resend แล้วไม่พบ LINE ──
+            log_notify(request_id, "RESEND", emp_approver, "",
+                       "SKIP", error_msg="ไม่พบ LINE ของหัวหน้า")
             return jsonify({
                 "ok": False,
                 "message": "ไม่พบ LINE ของหัวหน้า"
@@ -1810,7 +1720,9 @@ def resend_approver(ticket_no):
         ok = send_line_flex(
             approver_line_id,
             str(request_id),
-            data
+            data,
+            notify_type="RESEND",
+            to_emp=emp_approver
         )
 
         if not ok:
@@ -1952,7 +1864,7 @@ def send_receiver(ticket_no):
                 for wh_emp in WAREHOUSE_EMP_IDS:
                     wh_data = get_employee_line(wh_emp)
                     if wh_data and wh_data["line_id"]:
-                        send_manager_flex(wh_data["line_id"], str(ticket_no), line_data, action="receiver")
+                        send_manager_flex(wh_data["line_id"], str(ticket_no), line_data, action="receiver", to_emp=wh_emp)
                         print(f"[WAREHOUSE] ส่งให้ {wh_data['name']} ({wh_emp}) สำเร็จ")
             receiver_emp_code = WAREHOUSE_EMP_IDS[0]
 
@@ -1985,6 +1897,9 @@ def send_receiver(ticket_no):
         receiver_line = emp_data["line_id"]
 
         if not receiver_line:
+            # ── NOTIFY LOG (เพิ่มใหม่) — เก็บเคสผู้รับไม่ได้ผูก LINE ──
+            log_notify(ticket_no, "RECEIVER", receiver_emp_code, "",
+                       "SKIP", error_msg="พนักงานยังไม่ได้ผูก LINE")
             return jsonify({
                 "ok": False,
                 "message": "พนักงานยังไม่ได้ผูก LINE"
@@ -2032,7 +1947,8 @@ def send_receiver(ticket_no):
             receiver_line,
             str(ticket_no),
             line_data,
-            action="receiver"
+            action="receiver",
+            to_emp=receiver_emp_code
         )
 
         if not ok:
@@ -2090,8 +2006,8 @@ def send_manager(ticket_no):
 
     conn = None
     try:
-        # FIXED MANAGER EMP
-        emp_code = "4670008"
+        # FIXED MANAGER EMP คุณพิเดช
+        emp_code = "1450094"
         conn = get_conn()
         cur = conn.cursor()
 
@@ -2148,7 +2064,9 @@ def send_manager(ticket_no):
         manager_line = emp_data["line_id"]
 
         if not manager_line:
-
+            # ── NOTIFY LOG (เพิ่มใหม่) — เก็บเคส manager ไม่ได้ผูก LINE ──
+            log_notify(ticket_no, "MANAGER", emp_code, "",
+                       "SKIP", error_msg="พนักงานยังไม่ได้ผูก LINE")
             return jsonify({
                 "ok": False,
                 "message": "พนักงานยังไม่ได้ผูก LINE"
@@ -2202,7 +2120,8 @@ def send_manager(ticket_no):
             manager_line,
             str(ticket_no),
             line_data,
-            action="manager"
+            action="manager",
+            to_emp=emp_code
         )
 
         if not ok:
@@ -2810,4 +2729,5 @@ def cancel_request(ticket_no):
             except: pass
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5090, debug=True)
+    # ไฟล์ prod — debug ต้องปิดเสมอเว้นแต่ตั้ง FLASK_DEBUG ใน .env เอง
+    app.run(host="0.0.0.0", port=config.PORT, debug=config.DEBUG)

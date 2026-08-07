@@ -274,19 +274,25 @@
       {# APPROVER STATUS #}
       {# ───────────────────────────── #}
 
-      {% set apv_cls = 'apv-none' %}
+      {% set _cls = r.display_class | string %}
+      {% set _lbl = r.display_status | string %}
 
-      {% if r.display_class == '4' %}
+      {% if _cls == '4' %}
         {% set apv_cls = 'apv-waiting' %}
-      {% elif r.display_class == '5' %}
+        {% set apv_lbl = _lbl if _lbl and _lbl != 'None' else 'รออนุมัติ' %}
+      {% elif _cls == '5' %}
         {% set apv_cls = 'apv-approve' %}
-      {% elif r.display_class == '3' %}
+        {% set apv_lbl = _lbl if _lbl and _lbl != 'None' else 'อนุมัติแล้ว' %}
+      {% elif _cls == '3' %}
         {% set apv_cls = 'apv-reject' %}
-      {% elif r.display_class == 'done' %}
+        {% set apv_lbl = _lbl if _lbl and _lbl != 'None' else 'ยกเลิก' %}
+      {% elif _cls == 'done' %}
         {% set apv_cls = 'apv-done' %}
+        {% set apv_lbl = _lbl if _lbl and _lbl != 'None' else 'เสร็จสิ้น' %}
+      {% else %}
+        {% set apv_cls = 'apv-waiting' %}
+        {% set apv_lbl = 'รออนุมัติ' %}
       {% endif %}
-
-      {% set apv_lbl = r.display_status %}
 
       {# ───────────────────────────── #}
       {# ประเภทคำขอ #}
@@ -405,11 +411,33 @@
               <span class="apv-badge {{ apv_cls }}">{{ apv_lbl }}</span>
             </span>
           </div>
-          {% if r.request_remark %}
-          <div style="margin-top:10px;">
-            <div class="dp-remark-label">รายละเอียดปัญหา</div>
-            <div class="dp-remark">{{ r.display_remark or r.request_remark }}</div>
-          </div>
+            {% if r.request_typeform == '4' and r.has_transfer %}
+            <div style="margin-top:10px;">
+              <div class="dp-remark-label">รายละเอียดการโอนย้าย</div>
+              {% for line in (r.display_remark or '').split('\n') %}
+                {% set line = line.strip() %}
+                {% if line %}
+                  {% if line.startswith('[') and line.endswith(']') %}
+                    <div class="dp-row"><span class="dp-label" style="font-weight:600;color:var(--purple)">ประเภท</span><span class="dp-val">{{ line[1:-1] }}</span></div>
+                  {% elif line.startswith('ต้นทาง:') %}
+                    <div class="dp-row"><span class="dp-label">ต้นทาง</span><span class="dp-val">{{ line[7:].strip() }}</span></div>
+                  {% elif line.startswith('ปลายทาง:') %}
+                    <div class="dp-row"><span class="dp-label">ปลายทาง</span><span class="dp-val">{{ line[9:].strip() }}</span></div>
+                  {% elif line.startswith('สินทรัพย์:') %}
+                    <div class="dp-row"><span class="dp-label" style="font-weight:600;color:var(--text)">สินทรัพย์</span><span class="dp-val"></span></div>
+                  {% elif line.startswith('หมายเหตุ:') %}
+                    <div class="dp-row"><span class="dp-label">หมายเหตุ</span><span class="dp-val">{{ line[9:].strip() }}</span></div>
+                  {% else %}
+                    <div class="dp-row"><span class="dp-label"></span><span class="dp-val">{{ line }}</span></div>
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% elif r.request_remark %}
+            <div style="margin-top:10px;">
+              <div class="dp-remark-label">รายละเอียดปัญหา</div>
+              <div class="dp-remark">{{ r.display_remark or r.request_remark }}</div>
+            </div>
           {% endif %}
         </div>
 

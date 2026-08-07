@@ -7,47 +7,38 @@
 
       @page {
         size: A4 portrait;
-        margin: 18mm 18mm 20mm 18mm;
+        margin: 10mm 14mm 12mm 14mm;
       }
 
       body {
-        font-family: "Angsana New", "TH SarabunPSK", "Sarabun", serif;
+        font-family: 'THSarabunNew';
         font-size: 14pt;
-        color: #1a1a1a;
-      }
-      body {
-        font-family: 'THSarabun';
-        font-size: 18pt;
-        line-height: 1.35;
+        line-height: 1.2;
         color: #222;
       }
 
       .header-table {
         width: 100%;
         border-bottom: 2pt solid #1a3c6e;
-        margin-bottom: 10pt;
+        margin-bottom: 6pt;
       }
       .company-name {
-        font-size: 18pt;
+        font-size: 16pt;
         font-weight: bold;
         color: #1a3c6e;
       }
-      .company-sub {
-        font-size: 14pt;
-        color: #555;
-      }
       .doc-title {
-        font-size: 18pt;
+        font-size: 16pt;
         font-weight: bold;
         color: #1a3c6e;
         text-align: right;
       }
       .doc-no {
-        font-size: 18pt;
+        font-size: 14pt;
         text-align: right;
       }
       .doc-date {
-        font-size: 12pt;
+        font-size: 10pt;
         color: #666;
         text-align: right;
       }
@@ -55,38 +46,36 @@
       .type-badge {
         background: #1a3c6e;
         color: #fff;
-        font-size: 18pt;
+        font-size: 14pt;
         font-weight: bold;
-        padding: 2pt 12pt;
-        margin-bottom: 10pt;
+        padding: 2pt 10pt;
+        margin-bottom: 6pt;
         display: inline-block;
       }
 
-.section-title {
-  font-family: 'THSarabun-Bold';
-  font-size: 14pt;
-  letter-spacing: .3pt;
-  font-weight: bold;
-  color: #1a3c6e;
-  background: #eef2f9;
-  padding: 3pt 8pt;
-  border-left: 4pt solid #1a3c6e;
-  margin-top: 10pt;
-  margin-bottom: 6pt;
-}
+      .section-title {
+        font-size: 12pt;
+        font-weight: bold;
+        color: #1a3c6e;
+        background: #eef2f9;
+        padding: 2pt 8pt;
+        border-left: 4pt solid #1a3c6e;
+        margin-top: 6pt;
+        margin-bottom: 4pt;
+      }
 
       .info-table {
         width: 100%;
-        margin-bottom: 6pt;
+        margin-bottom: 4pt;
       }
       .info-table td {
         font-size: 12pt;
-        padding: 2pt 4pt;
+        padding: 1pt 4pt;
         vertical-align: bottom;
       }
       .lbl {
-  color: #666;
-  font-size: 15pt;
+        color: #666;
+        font-size: 12pt;
         white-space: nowrap;
         width: 90pt;
       }
@@ -95,42 +84,41 @@
         padding-bottom: 1pt;
       }
 
-.from-to-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 8pt;
-}
+      .from-to-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 6pt;
+        page-break-inside: avoid;
+      }
       .from-box {
         width: 50%;
         border: 1pt solid #d0d8e8;
         border-top: 3pt solid #e05c1a;
-        padding: 6pt 8pt;
+        padding: 4pt 8pt;
         vertical-align: top;
       }
       .to-box {
         width: 50%;
         border: 1pt solid #d0d8e8;
         border-top: 3pt solid #1a9e6e;
-        padding: 6pt 8pt;
+        padding: 4pt 8pt;
         vertical-align: top;
       }
       .box-title-from {
-        font-size: 14pt;
+        font-size: 12pt;
         font-weight: bold;
         color: #e05c1a;
-        margin-bottom: 4pt;
+        margin-bottom: 2pt;
       }
       .box-title-to {
-        font-size: 14pt;
+        font-size: 12pt;
         font-weight: bold;
         color: #1a9e6e;
-        margin-bottom: 4pt;
+        margin-bottom: 2pt;
       }
-      .mini-table {
-        width: 100%;
-      }
+      .mini-table { width: 100%; }
       .mini-table td {
-        font-size: 12pt;
+        font-size: 11pt;
         padding: 1pt 2pt;
         vertical-align: bottom;
       }
@@ -139,122 +127,100 @@
         white-space: nowrap;
         width: 60pt;
       }
-      .mini-val {
-        border-bottom: 1pt dotted #bbb;
-      }
+      .mini-val { border-bottom: 1pt dotted #bbb; }
 
       .asset-table {
         width: 100%;
         border-collapse: collapse;
         margin-top: 4pt;
-        font-size: 12pt;
+        font-size: 11pt;
+        page-break-inside: avoid;
       }
       .asset-table th {
         background: #1a3c6e;
         color: #fff;
         text-align: center;
-        padding: 4pt 6pt;
-        font-size: 12pt;
+        padding: 3pt 6pt;
+        font-size: 11pt;
       }
       .asset-table td {
         border: 1pt solid #ccd4e0;
-        padding: 4pt 6pt;
+        padding: 3pt 6pt;
         vertical-align: top;
       }
-      .asset-table tr.even td {
-        background: #f5f7fb;
-      }
-      .col-no {
-        width: 30pt;
-        text-align: center;
-      }
-      .col-code {
-        width: 90pt;
-      }
-      .col-remark {
-        width: 110pt;
-      }
+      .asset-table tr.even td { background: #f5f7fb; }
+      .col-no { width: 30pt; text-align: center; }
+      .col-code { width: 90pt; }
+      .col-remark { width: 110pt; }
 
       .remark-box {
         border: 1pt solid #d0d8e8;
-        padding: 6pt 8pt;
-        font-size: 14pt;
-        min-height: 40pt;
+        padding: 4pt 8pt;
+        font-size: 12pt;
+        min-height: 28pt;
         background: #fafbfe;
       }
 
-.sig-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10pt;
-}
+      .sig-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 6pt;
+        page-break-inside: avoid;
+      }
       .sig-cell {
         width: 25%;
         border: 1pt solid #d0d8e8;
-        padding: 6pt 4pt;
+        padding: 4pt 4pt;
         text-align: center;
         vertical-align: top;
       }
       .sig-role {
-        font-size: 12pt;
+        font-size: 11pt;
         font-weight: bold;
         color: #1a3c6e;
-        margin-bottom: 4pt;
+        margin-bottom: 2pt;
       }
-.sig-area {
-  height: 42pt;
-  border-bottom: 1pt solid #333;
-  margin: 0 6pt 4pt;
-  text-align: center;
-  padding-top: 18pt;
-}
-      .sig-area img {
-        max-height: 46pt;
-        max-width: 100%;
+      .sig-area {
+        height: 34pt;
+        border-bottom: 1pt solid #333;
+        margin: 0 6pt 3pt;
+        text-align: center;
+        padding-top: 12pt;
       }
-      /* ชื่อจริง (ตัวเขียน) ใน sig-area — จำกัดขนาด */
       .sig-cursive {
         font-family: cursive;
-        font-size: 12pt;
+        font-size: 11pt;
         line-height: 1.1;
         word-break: break-word;
         max-width: 100%;
       }
       .sig-name {
-        font-size: 11pt;
+        font-size: 10pt;
         border-bottom: 1pt dotted #aaa;
-        margin: 0 4pt 3pt;
-        min-height: 14pt;
+        margin: 0 4pt 2pt;
+        min-height: 12pt;
         text-align: center;
         word-break: break-word;
       }
-      .sig-date-lbl {
-        font-size: 10pt;
-        color: #888;
-      }
+      .sig-date-lbl { font-size: 9pt; color: #888; }
       .sig-date {
-        font-size: 10pt;
+        font-size: 9pt;
         border-bottom: 1pt dotted #aaa;
         margin: 0 4pt;
-        min-height: 14pt;
+        min-height: 12pt;
       }
 
       .doc-footer {
         border-top: 1pt solid #ccd4e0;
-        margin-top: 14pt;
-        padding-top: 4pt;
-        font-size: 10pt;
+        margin-top: 8pt;
+        padding-top: 3pt;
+        font-size: 9pt;
         color: #888;
       }
-      .footer-table {
-        width: 100%;
-      }
-      /* ── ลบ duplicate .sig-area { line-height:55pt } ออกแล้ว ── */
+      .footer-table { width: 100%; }
 
       /* ════ PREVIEW MODE ════ */
-      .preview-bar {
-        display: none;
-      }
+      .preview-bar { display: none; }
       @media screen {
         body { background: #f3f4f6; margin: 0; padding: 0; }
         .preview-bar {
@@ -278,12 +244,10 @@
           white-space: nowrap; flex-shrink: 0;
         }
         .preview-bar-btn:active { opacity: .8; }
-        .doc-wrapper {
-          width: 100%; overflow-x: auto; padding: 12px 8px 24px;
-        }
+        .doc-wrapper { width: 100%; overflow-x: auto; padding: 12px 8px 24px; }
         .doc-page {
           background: #fff; width: 210mm; min-height: 297mm;
-          margin: 0 auto; padding: 18mm;
+          margin: 0 auto; padding: 10mm 14mm 12mm 14mm;
           box-shadow: 0 4px 24px rgba(0,0,0,.12);
           border-radius: 4px; transform-origin: top center;
         }
@@ -303,9 +267,8 @@
       }
     </style>
   </head>
-  <body>
+<body>
 
-<!-- ── PREVIEW BAR (แสดงเฉพาะ browser ไม่แสดงตอนพิมพ์/PDF) ── -->
 {% if preview %}
 <div class="preview-bar">
   <span class="preview-bar-title">
@@ -317,35 +280,29 @@
 </div>
 <div class="doc-wrapper"><div class="doc-page">
 {% endif %}
+
     <table class="header-table">
       <tr>
         <td>
           <div class="company-name">{{ t.company_name }}</div>
-          <!-- <div class="company-sub">{{ t.requester_dept }}</div> -->
         </td>
         <td style="text-align: right; width: 200pt">
           <div class="doc-title">ใบโอนย้ายทรัพย์สิน IT</div>
-          <div class="doc-no">
-            เลขที่: <strong>{{ t.doc_no or '-' }}</strong>
-          </div>
+          <div class="doc-no">เลขที่: <strong>{{ t.doc_no or '-' }}</strong></div>
           <div class="doc-date">วันที่พิมพ์: {{ now }}</div>
         </td>
       </tr>
     </table>
- 
-    <div class="type-badge">
-      {{ t.transfer_type_name or t.transfer_type or '-' }}
-    </div>
- 
+
+    <div class="type-badge">{{ t.transfer_type_name or t.transfer_type or '-' }}</div>
+
     <div class="section-title">ข้อมูลผู้แจ้ง</div>
     <table class="info-table">
       <tr>
         <td class="lbl">ชื่อ-นามสกุล :</td>
         <td class="val">{{ t.requester_fname }} {{ t.requester_lname }}</td>
         <td class="lbl" style="width: 80pt">รหัสพนักงาน :</td>
-        <td class="val" style="width: 80pt">
-          {{ t.requester_empcode or '-' }}
-        </td>
+        <td class="val" style="width: 80pt">{{ t.requester_empcode or '-' }}</td>
       </tr>
       <tr>
         <td class="lbl">แผนก/ฝ่าย :</td>
@@ -360,63 +317,33 @@
         <td class="val">{{ t.request_id }}</td>
       </tr>
     </table>
- 
+
     <div class="section-title">ข้อมูลต้นทาง / ปลายทาง</div>
     <table class="from-to-table">
       <tr>
         <td class="from-box">
           <div class="box-title-from">&#9658; ต้นทาง (FROM)</div>
           <table class="mini-table">
-            <tr>
-              <td class="mini-lbl">แผนก :</td>
-              <td class="mini-val">{{ t.from_dept or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">Site :</td>
-              <td class="mini-val">{{ t.from_site_name or t.from_site or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">ฝ่าย :</td>
-              <td class="mini-val">{{ t.from_division_name or t.from_division or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">Cost Code :</td>
-              <td class="mini-val">{{ t.from_cost_code or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">Location :</td>
-              <td class="mini-val">{{ t.from_location_name or t.from_location or '-' }}</td>
-            </tr>
+            <tr><td class="mini-lbl">แผนก :</td><td class="mini-val">{{ t.from_dept or '-' }}</td></tr>
+            <tr><td class="mini-lbl">Site :</td><td class="mini-val">{{ t.from_site_name or t.from_site or '-' }}</td></tr>
+            <tr><td class="mini-lbl">ฝ่าย :</td><td class="mini-val">{{ t.from_division_name or t.from_division or '-' }}</td></tr>
+            <tr><td class="mini-lbl">Cost Code :</td><td class="mini-val">{{ t.from_cost_code or '-' }}</td></tr>
+            <tr><td class="mini-lbl">Location :</td><td class="mini-val">{{ t.from_location_name or t.from_location or '-' }}</td></tr>
           </table>
         </td>
         <td class="to-box">
           <div class="box-title-to">&#9658; ปลายทาง (TO)</div>
           <table class="mini-table">
-            <tr>
-              <td class="mini-lbl">แผนก :</td>
-              <td class="mini-val">{{ t.to_dept or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">Site :</td>
-              <td class="mini-val">{{ t.to_site_name or t.to_site or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">ฝ่าย :</td>
-              <td class="mini-val">{{ t.to_division_name or t.to_division or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">Cost Code :</td>
-              <td class="mini-val">{{ t.to_cost_code or '-' }}</td>
-            </tr>
-            <tr>
-              <td class="mini-lbl">Location :</td>
-              <td class="mini-val">{{ t.to_location_name or t.to_location or '-' }}</td>
-            </tr>
+            <tr><td class="mini-lbl">แผนก :</td><td class="mini-val">{{ t.to_dept or '-' }}</td></tr>
+            <tr><td class="mini-lbl">Site :</td><td class="mini-val">{{ t.to_site_name or t.to_site or '-' }}</td></tr>
+            <tr><td class="mini-lbl">ฝ่าย :</td><td class="mini-val">{{ t.to_division_name or t.to_division or '-' }}</td></tr>
+            <tr><td class="mini-lbl">Cost Code :</td><td class="mini-val">{{ t.to_cost_code or '-' }}</td></tr>
+            <tr><td class="mini-lbl">Location :</td><td class="mini-val">{{ t.to_location_name or t.to_location or '-' }}</td></tr>
           </table>
         </td>
       </tr>
     </table>
- 
+
     {% if t.buyer_name %}
     <div class="section-title">ข้อมูลผู้ซื้อ</div>
     <table class="info-table">
@@ -432,7 +359,7 @@
       </tr>
     </table>
     {% endif %}
- 
+
     <div class="section-title">รายการทรัพย์สิน</div>
     <table class="asset-table">
       <thead>
@@ -453,12 +380,7 @@
         </tr>
         {% else %}
         <tr>
-          <td
-            colspan="4"
-            style="text-align: center; color: #aaa; padding: 10pt"
-          >
-            ไม่มีรายการทรัพย์สิน
-          </td>
+          <td colspan="4" style="text-align: center; color: #aaa; padding: 8pt">ไม่มีรายการทรัพย์สิน</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -475,12 +397,6 @@
       {% endfor %}
     </div>
     {% endif %}
- 
-    {#
-      REMARK จาก DB มี ID ฝัง (site/division เป็นตัวเลข) — ไม่แสดงใน PDF
-      ถ้าต้องการแสดงให้เปลี่ยน t.remark เป็น t.remark_detail หรือ field ที่เก็บเฉพาะ note ของ user
-    #}
-
 
 {% set is_transfer = t.transfer_type == 'TRANSFER' %}
 {% set is_final_approve = t.transfer_type in ['DISPOSE', 'SALE'] %}
@@ -490,188 +406,63 @@
 
 <table class="sig-table">
   <tr>
-
-    <!-- ผู้ยื่นคำขอ -->
     <td class="sig-cell">
-
       <div class="sig-role">ผู้ยื่นคำขอ</div>
-
-      <div class="sig-area">
-        <span class="sig-cursive">
-          {{ t.requester_fname or '' }}
-          {{ t.requester_lname or '' }}
-        </span>
-      </div>
-
-      <div class="sig-name">
-        {{ t.requester_fname or '' }}
-        {{ t.requester_lname or '' }}
-      </div>
-
+      <div class="sig-area"><span class="sig-cursive">{{ t.requester_fname or '' }} {{ t.requester_lname or '' }}</span></div>
       <div class="sig-date-lbl">วันที่</div>
-
-      <div class="sig-date">
-        {{ t.request_date or '' }}
-      </div>
-
+      <div class="sig-date">{{ t.request_date or '' }}</div>
     </td>
 
-<!-- ผู้อนุมัติ -->
-<td class="sig-cell">
-
-  <div class="sig-role">ผู้อนุมัติ</div>
-
-  <div class="sig-area">
-    <span class="sig-cursive">
-      {{ t.approve_by_name or '' }}
-    </span>
-  </div>
-
-  <div class="sig-name">
-    {{ t.approve_by_name or '' }}
-  </div>
-
-  <div class="sig-date-lbl">วันที่</div>
-
-  <div class="sig-date">
-    {{ t.approve_date or '' }}
-  </div>
-
-</td>
-    <!-- ผู้รับ / ผู้ส่ง -->
     <td class="sig-cell">
-
-      <div class="sig-role">
-
-        {% if is_transfer %}
-          ผู้ส่ง / ผู้รับโอน
-
-        {% elif is_final_approve %}
-          ผู้รับ
-
-        {% elif is_return_job %}
-          ผู้รับ
-
-        {% else %}
-          ผู้รับ
-        {% endif %}
-
-      </div>
-
-<div class="sig-area">
-
-  <div class="sig-cursive">
-
-    {% if is_transfer %}
-
-      {% if t.sender_name %}
-        <div>{{ t.sender_name }} (ผู้ส่ง)</div>
-      {% endif %}
-
-      {% if t.receiver_name %}
-        <div>{{ t.receiver_name }} (ผู้รับ)</div>
-      {% endif %}
-
-    {% else %}
-
-      {% if t.sender_name %}
-        <div>{{ t.sender_name }}</div>
-
-      {% elif t.receiver_name %}
-        <div>{{ t.receiver_name }}</div>
-
-      {% endif %}
-
-    {% endif %}
-
-  </div>
-
-</div>
-
-<div class="sig-name">
-
-  {% if is_transfer %}
-
-    {% if t.sender_name %}
-      <div>{{ t.sender_name }} (ผู้ส่ง)</div>
-    {% endif %}
-
-    {% if t.receiver_name %}
-      <div>{{ t.receiver_name }} (ผู้รับ)</div>
-    {% endif %}
-
-  {% else %}
-
-    {% if t.sender_name %}
-      <div>{{ t.sender_name }}</div>
-
-    {% elif t.receiver_name %}
-      <div>{{ t.receiver_name }}</div>
-
-    {% endif %}
-
-  {% endif %}
-
-</div>
-
+      <div class="sig-role">ผู้อนุมัติ</div>
+      <div class="sig-area"><span class="sig-cursive">{{ t.approve_by_name or '' }}</span></div>
       <div class="sig-date-lbl">วันที่</div>
-
-      <div class="sig-date">
-        {{ t.receiver_approved_at or '' }}
-      </div>
-
+      <div class="sig-date">{{ t.approve_date or '' }}</div>
     </td>
 
-<!-- ช่อง 4 -->
+    <td class="sig-cell">
+      <div class="sig-role">
+        {% if is_transfer %}ผู้ส่ง / ผู้รับโอน{% else %}ผู้รับ{% endif %}
+      </div>
+      <div class="sig-area">
+        <div class="sig-cursive">
+          {% if is_transfer %}
+            {% if t.sender_name %}<div>{{ t.sender_name }} (ผู้ส่ง)</div>{% endif %}
+            {% if t.receiver_name %}<div>{{ t.receiver_name }} (ผู้รับ)</div>{% endif %}
+          {% else %}
+            {% if t.sender_name %}<div>{{ t.sender_name }}</div>
+            {% elif t.receiver_name %}<div>{{ t.receiver_name }}</div>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+      <div class="sig-date-lbl">วันที่</div>
+      <div class="sig-date">{{ t.receiver_approved_at or '' }}</div>
+    </td>
 
-{% if not is_return_job %}
-
-<td class="sig-cell">
-
-  <div class="sig-role">
-    ผู้อนุมัติคนสุดท้าย
-  </div>
-
-  <div class="sig-area">
-
-    <span class="sig-cursive">
-      {{ t.manager_approve_name or '' }}
-    </span>
-
-  </div>
-
-  <div class="sig-name">
-    {{ t.manager_approve_name or '' }}
-  </div>
-
-  <div class="sig-date-lbl">วันที่</div>
-
-  <div class="sig-date">
-    {{ t.manager_approve_date or '' }}
-  </div>
-
-</td>
-
-{% endif %}
+    {% if not is_return_job %}
+    <td class="sig-cell">
+      <div class="sig-role">ผู้อนุมัติคนสุดท้าย</div>
+      <div class="sig-area"><span class="sig-cursive">{{ t.manager_approve_name or '' }}</span></div>
+      <div class="sig-date-lbl">วันที่</div>
+      <div class="sig-date">{{ t.manager_approve_date or '' }}</div>
+    </td>
+    {% endif %}
 
   </tr>
 </table>
- 
+
     <div class="doc-footer">
       <table class="footer-table">
         <tr>
           <td>พิมพ์โดย IT Helpdesk System</td>
-          <td style="text-align: center">
-            DOC: {{ t.doc_no }} | REQ: {{ t.request_id }}
-          </td>
+          <td style="text-align: center">DOC: {{ t.doc_no }} | REQ: {{ t.request_id }}</td>
           <td style="text-align: right">{{ now }}</td>
         </tr>
       </table>
     </div>
-
-{% if preview %}
-</div></div>{# close doc-page + doc-wrapper #}
-{% endif %}
+    {% if preview %}
+    </div></div>
+    {% endif %}
 
   </body>
 </html>

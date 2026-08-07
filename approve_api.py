@@ -1,12 +1,12 @@
 import os
-import oracledb as cx_Oracle
+import cx_Oracle
 from flask import Blueprint, request, jsonify
-from dotenv import load_dotenv
 import urllib.request
 import json
 
-load_dotenv("env")
-LINE_TOKEN = os.getenv("LINE_CHANNEL_TOKEN")
+import config
+
+LINE_TOKEN = config.LINE_TOKEN
 approve_bp = Blueprint("approve_bp", __name__)
 def check_transfer_complete(req_id):
     conn = None
@@ -132,11 +132,7 @@ def check_transfer_complete(req_id):
 # Oracle Connection
 # ─────────────────────────────
 def get_conn():
-    return cx_Oracle.connect(
-        user     = os.getenv("ORACLE_USER", "SBLDB"),
-        password = os.getenv("ORACLE_PASSWORD", "***REMOVED***"),
-        dsn      = os.getenv("ORACLE_DSN", "***REMOVED_DSN***")
-    )
+    return cx_Oracle.connect(**config.oracle_credentials())
 
 # ─────────────────────────────
 # UPDATE FUNCTION

@@ -1,7 +1,9 @@
 import io
 import os
 
-import oracledb as cx_Oracle
+import cx_Oracle
+
+import config
 
 from datetime import datetime
 from typing import Optional
@@ -13,6 +15,9 @@ from xhtml2pdf import pisa
 from xhtml2pdf.default import DEFAULT_FONT
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+
+font_path = os.path.join(os.path.dirname(__file__), "static", "fonts", "THSarabunNew", "THSarabunNew.ttf")
+pdfmetrics.registerFont(TTFont("Sarabun", font_path))
 
 
 def link_callback(uri, rel):
@@ -58,11 +63,7 @@ transfer_pdf_bp = Blueprint(
 #  DB CONNECTION
 # ══════════════════════════════════════════════════════════════
 def getconn():
-    return cx_Oracle.connect(
-        user     = os.getenv("ORACLE_USER",     "SBLDB"),
-        password = os.getenv("ORACLE_PASSWORD", "***REMOVED***"),
-        dsn      = os.getenv("ORACLE_DSN",      "***REMOVED_DSN***"),
-    )
+    return cx_Oracle.connect(**config.oracle_credentials())
 
 
 # ══════════════════════════════════════════════════════════════
