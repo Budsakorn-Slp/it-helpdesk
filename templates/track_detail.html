@@ -194,6 +194,92 @@
   cursor: pointer;
 }
 
+/* ── ATTACHMENTS ── */
+.att-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+.att-item:last-child { border-bottom: none; }
+.att-thumb {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9ff;
+  text-decoration: none;
+}
+.att-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.att-file { font-size: .62rem; font-weight: 700; color: #5b5ef4; letter-spacing: .03em; }
+.att-info { flex: 1; min-width: 0; }
+.att-name {
+  display: block;
+  font-size: .82rem;
+  font-weight: 600;
+  color: #1e1b4b;
+  text-decoration: none;
+  word-break: break-all;
+}
+.att-name:hover { text-decoration: underline; }
+.att-meta { font-size: .72rem; color: #9ca3af; margin-top: 2px; }
+.att-del {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.att-del:disabled { opacity: .45; cursor: not-allowed; }
+.att-empty { font-size: .8rem; color: #9ca3af; padding: 6px 0; }
+
+.att-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 16px 12px;
+  border: 1.5px dashed #c7cbe0;
+  border-radius: 10px;
+  background: #fafbff;
+  cursor: pointer;
+  text-align: center;
+}
+.att-drop:hover { border-color: #5b5ef4; background: #f5f6ff; }
+.att-drop.over  { border-color: #5b5ef4; background: #eef0ff; }
+.att-drop-title { font-size: .84rem; font-weight: 700; color: #5b5ef4; }
+.att-drop-sub   { font-size: .72rem; color: #9ca3af; line-height: 1.6; }
+.att-drop.full  { opacity: .5; pointer-events: none; }
+
+#att-preview:not(:empty) { margin-top: 10px; }
+.att-pick {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+  margin-bottom: 7px;
+  background: #fff;
+}
+.att-pick.bad { border-color: #fca5a5; background: #fff5f5; }
+.att-pick .att-meta.err { color: #dc2626; }
+
+.att-msg { font-size: .76rem; margin-top: 9px; }
+.att-msg.ok  { color: #16a34a; }
+.att-msg.err { color: #dc2626; }
+
 /* ── RECEIVER PICKER MODAL ── */
 .rpicker-overlay {
   display: none;
@@ -539,6 +625,71 @@
         </div>
       </div>
       {% endif %}
+    </div>
+  </div>
+
+  <!-- ATTACHMENTS -->
+  <div class="action-card" style="margin-top:12px;">
+    <div class="action-card-header">
+      <span class="badge-dot {{ 'dot-green' if attachments else 'dot-gray' }}"></span>
+      &nbsp;ไฟล์แนบ
+      <span style="margin-left:auto; font-weight:600; color:#6b7280; text-transform:none;">
+        <span id="att-count">{{ attachments|length }}</span>/{{ max_attachments }}
+      </span>
+    </div>
+    <div class="action-card-body">
+
+      <!-- ไฟล์ที่บันทึกไว้แล้ว -->
+      <div id="att-saved">
+        {% if attachments %}
+          {% for a in attachments %}
+          <div class="att-item" data-id="{{ a.id }}">
+            {% if a.is_image %}
+              <a href="{{ a.url }}" target="_blank" class="att-thumb">
+                <img src="{{ a.url }}" alt="{{ a.orig_name }}">
+              </a>
+            {% else %}
+              <a href="{{ a.url }}" target="_blank" class="att-thumb att-file">
+                {{ a.orig_name.rsplit('.', 1)[-1]|upper if '.' in a.orig_name else 'FILE' }}
+              </a>
+            {% endif %}
+            <div class="att-info">
+              <a href="{{ a.url }}" target="_blank" class="att-name">{{ a.orig_name }}</a>
+              <div class="att-meta">{{ (a.size / 1024)|round(0)|int }} KB · {{ a.at }}</div>
+            </div>
+            <button type="button" class="att-del"
+                    onclick="deleteAttachment('{{ item.request_id }}', {{ a.id }})"
+                    title="ลบไฟล์">&times;</button>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="att-empty">ยังไม่มีไฟล์แนบ</div>
+        {% endif %}
+      </div>
+
+      <!-- เลือกไฟล์ใหม่ -->
+      <div id="att-picker" style="margin-top:12px;">
+        <label class="att-drop" id="att-drop">
+          <input type="file" id="att-input" multiple
+                 accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx,.xls,.xlsx,.zip"
+                 onchange="onPickFiles(this)" style="display:none;">
+          <span class="att-drop-title">เลือกไฟล์</span>
+          <span class="att-drop-sub">
+            สูงสุด {{ max_attachments }} ไฟล์ · ไฟล์ละไม่เกิน 5 MB<br>
+            รองรับ pdf, รูปภาพ, word, excel, zip
+          </span>
+        </label>
+
+        <div id="att-preview"></div>
+
+        <div class="action-btn-row" id="att-actions" style="display:none;">
+          <button type="button" class="btn-action btn-gray" onclick="clearPicked()">ล้าง</button>
+          <button type="button" class="btn-action btn-green" id="btn-att-save"
+                  onclick="saveAttachments('{{ item.request_id }}')">บันทึกไฟล์แนบ</button>
+        </div>
+      </div>
+
+      <div id="att-msg" class="att-msg"></div>
     </div>
   </div>
 
@@ -1244,5 +1395,216 @@ function saveSupplierName(ticketNo) {
 // close modals on overlay click
 document.getElementById("confirm-modal")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeConfirmModal(); });
 document.getElementById("rpicker-modal")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeReceiverPicker(); });
+
+/* ═══════════════════════════════════════════════
+   ไฟล์แนบ — เลือก → ดูตัวอย่าง → กดบันทึก
+   ═══════════════════════════════════════════════ */
+const ATT_MAX   = {{ max_attachments }};
+const ATT_MB    = 5;
+const ATT_OK    = ["pdf","png","jpg","jpeg","gif","doc","docx","xls","xlsx","zip"];
+const IMG_EXT   = ["png","jpg","jpeg","gif"];
+let   attPicked = [];          // ไฟล์ที่เลือกไว้แต่ยังไม่ได้บันทึก
+let   attSaved  = {{ attachments|length }};
+
+function attMsg(text, cls) {
+  const el = document.getElementById("att-msg");
+  if (!el) return;
+  el.textContent = text || "";
+  el.className   = "att-msg" + (cls ? " " + cls : "");
+}
+
+function extOf(name) {
+  return name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+}
+
+/* พื้นที่ว่างที่เหลือ = โควตา − ที่บันทึกแล้ว − ที่กำลังจะบันทึก */
+function attRoom() { return ATT_MAX - attSaved - attPicked.length; }
+
+function refreshPicker() {
+  const drop = document.getElementById("att-drop");
+  if (!drop) return;
+  const full = attRoom() <= 0;
+  drop.classList.toggle("full", full);
+  drop.querySelector(".att-drop-title").textContent =
+    full ? "ครบ " + ATT_MAX + " ไฟล์แล้ว" : "เลือกไฟล์";
+  document.getElementById("att-actions").style.display = attPicked.length ? "flex" : "none";
+  const cnt = document.getElementById("att-count");
+  if (cnt) cnt.textContent = attSaved;
+}
+
+function onPickFiles(input) {
+  attMsg("");
+  for (const f of Array.from(input.files)) {
+    if (attRoom() <= 0) { attMsg("แนบได้สูงสุด " + ATT_MAX + " ไฟล์", "err"); break; }
+    const ext = extOf(f.name);
+    if (!ATT_OK.includes(ext))            { attMsg("ไฟล์ " + f.name + " เป็นชนิดที่ไม่รองรับ", "err"); continue; }
+    if (f.size > ATT_MB * 1024 * 1024)    { attMsg("ไฟล์ " + f.name + " ใหญ่เกิน " + ATT_MB + " MB", "err"); continue; }
+    if (attPicked.some(p => p.name === f.name && p.size === f.size)) continue;  // กันเลือกซ้ำ
+    attPicked.push(f);
+  }
+  input.value = "";           // เคลียร์เพื่อให้เลือกไฟล์เดิมซ้ำได้
+  renderPreview();
+}
+
+function renderPreview() {
+  const box = document.getElementById("att-preview");
+  box.innerHTML = "";
+  attPicked.forEach((f, i) => {
+    const ext = extOf(f.name);
+    const row = document.createElement("div");
+    row.className = "att-pick";
+
+    const thumb = document.createElement("span");
+    thumb.className = "att-thumb" + (IMG_EXT.includes(ext) ? "" : " att-file");
+    if (IMG_EXT.includes(ext)) {
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(f);
+      // ปล่อย object URL หลังรูปโหลดเสร็จ ไม่งั้น memory ค้าง
+      img.onload = () => URL.revokeObjectURL(img.src);
+      thumb.appendChild(img);
+    } else {
+      thumb.textContent = ext.toUpperCase();
+    }
+
+    const info = document.createElement("div");
+    info.className = "att-info";
+    const nm = document.createElement("div");
+    nm.className = "att-name";
+    nm.textContent = f.name;
+    const mt = document.createElement("div");
+    mt.className = "att-meta";
+    mt.textContent = Math.round(f.size / 1024) + " KB · ยังไม่ได้บันทึก";
+    info.append(nm, mt);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "att-del";
+    del.innerHTML = "&times;";
+    del.title = "เอาออก";
+    del.onclick = () => { attPicked.splice(i, 1); renderPreview(); };
+
+    row.append(thumb, info, del);
+    box.appendChild(row);
+  });
+  refreshPicker();
+}
+
+function clearPicked() {
+  attPicked = [];
+  renderPreview();
+  attMsg("");
+}
+
+async function saveAttachments(ticketNo) {
+  if (!attPicked.length) { attMsg("ยังไม่ได้เลือกไฟล์", "err"); return; }
+  const btn = document.getElementById("btn-att-save");
+  btn.disabled = true;
+  btn.textContent = "กำลังบันทึก...";
+  attMsg("");
+
+  const fd = new FormData();
+  attPicked.forEach(f => fd.append("files", f));
+
+  try {
+    const res  = await fetch(`/api/attachments/${ticketNo}`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      attMsg(data.message || "บันทึกไม่สำเร็จ", "err");
+      return;
+    }
+    attPicked = [];
+    renderSaved(ticketNo, data.files);
+    renderPreview();
+    attMsg("บันทึก " + data.added + " ไฟล์เรียบร้อย", "ok");
+  } catch (e) {
+    attMsg("เชื่อมต่อไม่ได้", "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "บันทึกไฟล์แนบ";
+  }
+}
+
+/* วาดรายการไฟล์ที่บันทึกแล้วใหม่ ไม่ต้อง reload ทั้งหน้า */
+function renderSaved(ticketNo, files) {
+  const box = document.getElementById("att-saved");
+  attSaved  = files.length;
+  box.innerHTML = "";
+
+  if (!files.length) {
+    const em = document.createElement("div");
+    em.className = "att-empty";
+    em.textContent = "ยังไม่มีไฟล์แนบ";
+    box.appendChild(em);
+    refreshPicker();
+    return;
+  }
+
+  files.forEach(a => {
+    const row = document.createElement("div");
+    row.className = "att-item";
+    row.dataset.id = a.id;
+
+    const link = document.createElement("a");
+    link.href = a.url; link.target = "_blank";
+    link.className = "att-thumb" + (a.is_image ? "" : " att-file");
+    if (a.is_image) {
+      const img = document.createElement("img");
+      img.src = a.url; img.alt = a.orig_name;
+      link.appendChild(img);
+    } else {
+      link.textContent = (extOf(a.orig_name) || "file").toUpperCase();
+    }
+
+    const info = document.createElement("div");
+    info.className = "att-info";
+    const nm = document.createElement("a");
+    nm.className = "att-name"; nm.href = a.url; nm.target = "_blank";
+    nm.textContent = a.orig_name;
+    const mt = document.createElement("div");
+    mt.className = "att-meta";
+    mt.textContent = Math.round(a.size / 1024) + " KB · " + a.at;
+    info.append(nm, mt);
+
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "att-del";
+    del.innerHTML = "&times;"; del.title = "ลบไฟล์";
+    del.onclick = () => deleteAttachment(ticketNo, a.id);
+
+    row.append(link, info, del);
+    box.appendChild(row);
+  });
+  refreshPicker();
+}
+
+async function deleteAttachment(ticketNo, attId) {
+  if (!confirm("ลบไฟล์แนบนี้?")) return;
+  const row = document.querySelector(`.att-item[data-id="${attId}"]`);
+  const btn = row?.querySelector(".att-del");
+  if (btn) btn.disabled = true;
+  try {
+    const res  = await fetch(`/api/attachments/${ticketNo}/${attId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok || !data.ok) { attMsg(data.message || "ลบไม่สำเร็จ", "err"); if (btn) btn.disabled = false; return; }
+    renderSaved(ticketNo, data.files);
+    attMsg("ลบไฟล์แล้ว", "ok");
+  } catch (e) {
+    attMsg("เชื่อมต่อไม่ได้", "err");
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ลากไฟล์มาวางได้ด้วย */
+(function () {
+  const drop = document.getElementById("att-drop");
+  if (!drop) return;
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => {
+    if (e.dataTransfer?.files?.length) onPickFiles({ files: e.dataTransfer.files, value: "" });
+  });
+  refreshPicker();
+})();
 </script>
 {% endblock %}

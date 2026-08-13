@@ -1662,6 +1662,8 @@ def track_detail(ticket_no):
             error=error,
             transfer=transfer,
             assets=assets,
+            attachments=get_attachments(ticket_no),
+            max_attachments=MAX_ATTACHMENTS,
             status_map=REQUEST_STATUS_MAP,
             approver_status_map=APPROVER_STATUS_MAP
         )
@@ -2772,6 +2774,172 @@ def api_costcenters(dept_id):
 # ══════════════════════════════════════════════════════════════
 #  CANCEL REQUEST API (เฉพาะสถานะ Waiting เท่านั้น)
 # ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+#  ไฟล์แนบ (IT_HELPDESK_ATTACHMENT) — แนบได้สูงสุด MAX_ATTACHMENTS ไฟล์
+# ══════════════════════════════════════════════════════════════
+MAX_ATTACHMENTS  = 3
+MAX_ATTACH_BYTES = 5 * 1024 * 1024      # ต่อไฟล์
+IMAGE_EXT        = {"png", "jpg", "jpeg", "gif"}
+
+
+def _ext(name):
+    return name.rsplit(".", 1)[1].lower() if "." in name else ""
+
+
+def get_attachments(request_id):
+    """คืนไฟล์แนบของคำขอนี้ เรียงตามเวลาที่อัปโหลด"""
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ID, FILE_NAME, ORIG_NAME, FILE_SIZE, UPLOADED_BY, UPLOADED_AT
+            FROM   IT_HELPDESK_ATTACHMENT
+            WHERE  REQUEST_ID = :rid
+            ORDER  BY UPLOADED_AT, ID
+        """, {"rid": request_id})
+        out = []
+        for r in cur.fetchall():
+            name = r[1]
+            out.append({
+                "id":        r[0],
+                "file_name": name,
+                "orig_name": r[2] or name,
+                "size":      int(r[3] or 0),
+                "by":        r[4] or "",
+                "at":        r[5].strftime("%d/%m/%Y %H:%M") if r[5] else "",
+                "url":       url_for("static", filename=f"uploads/{name}"),
+                "is_image":  _ext(name) in IMAGE_EXT,
+            })
+        return out
+    except Exception as e:
+        print("[ATTACHMENT LIST ERROR]", e)
+        return []
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+@app.route("/api/attachments/<string:ticket_no>")
+def api_attachments(ticket_no):
+    return jsonify({"ok": True, "files": get_attachments(ticket_no),
+                    "max": MAX_ATTACHMENTS})
+
+
+@app.route("/api/attachments/<string:ticket_no>", methods=["POST"])
+def api_attachments_upload(ticket_no):
+    """อัปโหลดไฟล์แนบ — เขียนลงดิสก์ก่อน แล้วค่อย insert
+
+    ถ้า insert ล้มจะลบไฟล์ที่เพิ่งเขียนทิ้ง ไม่ให้เหลือไฟล์กำพร้าในโฟลเดอร์
+    """
+    files = [f for f in request.files.getlist("files") if f and f.filename]
+    if not files:
+        return jsonify({"ok": False, "message": "ไม่ได้เลือกไฟล์"}), 400
+
+    current = get_attachments(ticket_no)
+    room = MAX_ATTACHMENTS - len(current)
+    if room <= 0:
+        return jsonify({"ok": False,
+                        "message": f"แนบได้สูงสุด {MAX_ATTACHMENTS} ไฟล์"}), 400
+    if len(files) > room:
+        return jsonify({"ok": False,
+                        "message": f"เหลือพื้นที่แนบได้อีก {room} ไฟล์"}), 400
+
+    saved, rows = [], []
+    for f in files:
+        if not allowed_file(f.filename):
+            return jsonify({"ok": False,
+                            "message": f"ไฟล์ {f.filename} เป็นชนิดที่ไม่รองรับ"}), 400
+        # ต้องวัดขนาดจาก stream เพราะ content-length ของแต่ละ part เชื่อไม่ได้
+        f.stream.seek(0, os.SEEK_END)
+        size = f.stream.tell()
+        f.stream.seek(0)
+        if size > MAX_ATTACH_BYTES:
+            return jsonify({"ok": False,
+                            "message": f"ไฟล์ {f.filename} ใหญ่เกิน 5 MB"}), 400
+
+        safe  = secure_filename(f.filename) or "file"
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        disk  = f"{stamp}_{safe}"
+        f.save(os.path.join(app.config["UPLOAD_FOLDER"], disk))
+        saved.append(disk)
+        rows.append((disk, f.filename[:400], size))
+
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        emp = (inject_employee().get("employee") or {}).get("emp_id", "")
+        for disk, orig, size in rows:
+            # ห้ามตั้งชื่อ bind ว่า :on หรือ :by — เป็นคำสงวนของ Oracle
+            # จะได้ ORA-01745 invalid host/bind variable name
+            cur.execute("""
+                INSERT INTO IT_HELPDESK_ATTACHMENT
+                    (ID, REQUEST_ID, FILE_NAME, ORIG_NAME, FILE_SIZE, UPLOADED_BY, UPLOADED_AT)
+                VALUES
+                    (SEQ_IT_HELPDESK_ATTACHMENT.NEXTVAL, :rid, :fn, :orig, :sz, :uploader, SYSDATE)
+            """, {"rid": ticket_no, "fn": disk, "orig": orig,
+                  "sz": size, "uploader": emp})
+        conn.commit()
+    except Exception as e:
+        if conn:
+            try: conn.rollback()
+            except: pass
+        for disk in saved:
+            try: os.remove(os.path.join(app.config["UPLOAD_FOLDER"], disk))
+            except OSError: pass
+        print("[ATTACHMENT UPLOAD ERROR]", e)
+        return jsonify({"ok": False, "message": "บันทึกไม่สำเร็จ"}), 500
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+    return jsonify({"ok": True, "added": len(rows),
+                    "files": get_attachments(ticket_no)})
+
+
+@app.route("/api/attachments/<string:ticket_no>/<int:att_id>", methods=["DELETE"])
+def api_attachments_delete(ticket_no, att_id):
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        # ผูก REQUEST_ID ไว้ด้วย กันลบไฟล์ของคำขออื่นด้วยการเดา id
+        cur.execute("""
+            SELECT FILE_NAME FROM IT_HELPDESK_ATTACHMENT
+            WHERE ID = :id AND REQUEST_ID = :rid
+        """, {"id": att_id, "rid": ticket_no})
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"ok": False, "message": "ไม่พบไฟล์"}), 404
+
+        cur.execute("""
+            DELETE FROM IT_HELPDESK_ATTACHMENT
+            WHERE ID = :id AND REQUEST_ID = :rid
+        """, {"id": att_id, "rid": ticket_no})
+        conn.commit()
+
+        # ลบไฟล์บนดิสก์ทีหลัง ถ้าลบไม่ได้ก็ไม่ถือว่าพัง (แถวใน DB หายแล้ว)
+        try:
+            os.remove(os.path.join(app.config["UPLOAD_FOLDER"], row[0]))
+        except OSError as e:
+            print("[ATTACHMENT FILE REMOVE]", e)
+
+        return jsonify({"ok": True, "files": get_attachments(ticket_no)})
+    except Exception as e:
+        if conn:
+            try: conn.rollback()
+            except: pass
+        print("[ATTACHMENT DELETE ERROR]", e)
+        return jsonify({"ok": False, "message": str(e)}), 500
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+
 @app.route("/api/cancel/<string:ticket_no>", methods=["POST"])
 def cancel_request(ticket_no):
     # ดึง empcode ของ user ที่ login อยู่
